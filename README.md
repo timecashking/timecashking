@@ -1,0 +1,3 @@
+# TimeCash King
+
+Project initialized.
