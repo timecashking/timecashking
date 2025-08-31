@@ -1,0 +1,19 @@
+// Prisma schema for Neon Postgres
+// datasource
+datasource db {
+	provider = "postgresql"
+	url      = env("NEON_DATABASE_URL")
+}
+
+generator client {
+	provider = "prisma-client-js"
+}
+
+model User {
+	id        String   @id @default(cuid())
+	googleId  String   @unique
+	email     String   @unique
+	name      String?
+	avatarUrl String?
+	createdAt DateTime @default(now())
+}
