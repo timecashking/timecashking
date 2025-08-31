@@ -9,11 +9,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Render Deploy Hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
-          curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+          if [ -n "${RENDER_DEPLOY_HOOK}" ]; then
+            curl -fsSL -X POST "${RENDER_DEPLOY_HOOK}"
+          else
+            echo "RENDER_DEPLOY_HOOK not set, skipping"
+          fi
+
       - name: Trigger Netlify Build Hook (optional)
-        if: ${{ secrets.NETLIFY_BUILD_HOOK != '' }}
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
         run: |
-          curl -fsSL -X POST "${{ secrets.NETLIFY_BUILD_HOOK }}" || true
+          if [ -n "${NETLIFY_BUILD_HOOK}" ]; then
+            curl -fsSL -X POST "${NETLIFY_BUILD_HOOK}" || true
+          else
+            echo "NETLIFY_BUILD_HOOK not set, skipping"
+          fi
 
