@@ -10,6 +10,8 @@
 		.card{background:#111a2b;border:1px solid #23314f;border-radius:12px;padding:24px}
 		.btn{display:inline-block;margin-top:16px;padding:10px 16px;border-radius:8px;background:#3b82f6;color:white;text-decoration:none}
 		code{background:#0e1627;padding:2px 6px;border-radius:6px}
+		.small{font-size:.9rem;color:#a8b3cf}
+		pre{white-space:pre-wrap;word-break:break-word;background:#0e1627;padding:12px;border-radius:8px}
 	</style>
 </head>
 <body>
@@ -18,23 +20,47 @@
 			<h1>TimeCash King</h1>
 			<p>API pública:</p>
 			<p>
-				<a id="apiLink" class="btn" target="_blank" rel="noreferrer">
-					Abrir API
-				</a>
+				<a id="apiLink" class="btn" target="_blank" rel="noreferrer">Abrir API</a>
 			</p>
-			<p>
-				Health check: <code>/health</code>
-			</p>
+			<p class="small">Health check: <code>/health</code></p>
+			<hr/>
+			<h3>Login</h3>
+			<p><a id="loginGoogle" class="btn" href="#">Login com Google</a></p>
+			<p class="small">Após o login, você voltará para esta página com <code>?token=...</code>. Usaremos esse token para chamar <code>/me</code>.</p>
+			<p><button id="btnMe" class="btn">Chamar /me</button></p>
+			<pre id="out"></pre>
 		</div>
 	</div>
 	<script>
-		(function(){
-			var fallback = 'https://timecashking-api.onrender.com';
-			var api = (window.NETLIFY ? window.NETLIFY.env && window.NETLIFY.env.NEXT_PUBLIC_API_URL : null) || (window.env && window.env.NEXT_PUBLIC_API_URL) || (typeof NEXT_PUBLIC_API_URL !== 'undefined' && NEXT_PUBLIC_API_URL) || fallback;
-			var a = document.getElementById('apiLink');
-			a.href = api;
-			a.textContent = api;
-		})();
+	(function(){
+		var fallback = 'https://timecashking-api.onrender.com';
+		var api = (window.NETLIFY ? window.NETLIFY.env && window.NETLIFY.env.NEXT_PUBLIC_API_URL : null) || (window.env && window.env.NEXT_PUBLIC_API_URL) || (typeof NEXT_PUBLIC_API_URL !== 'undefined' && NEXT_PUBLIC_API_URL) || fallback;
+		document.getElementById('apiLink').href = api;
+		document.getElementById('apiLink').textContent = api;
+
+		// Login URL
+		document.getElementById('loginGoogle').href = api.replace(/\/$/,'') + '/integrations/google/auth';
+
+		// Capture token from query (?token=...)
+		var params = new URLSearchParams(location.search);
+		var token = params.get('token');
+		if (token) {
+			localStorage.setItem('tck_jwt', token);
+		}
+		var stored = localStorage.getItem('tck_jwt') || '';
+
+		document.getElementById('btnMe').addEventListener('click', async function(){
+			try {
+				const res = await fetch(api.replace(/\/$/,'') + '/me', {
+					headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('tck_jwt')||'') }
+				});
+				const data = await res.json();
+				document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+			} catch (e) {
+				document.getElementById('out').textContent = String(e);
+			}
+		});
+	})();
 	</script>
 </body>
 </html>

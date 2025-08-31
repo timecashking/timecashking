@@ -95,6 +95,14 @@ app.get('/integrations/google/callback', async (req, res) => {
 
 		const appToken = signJwt({ userId: user.id, email: user.email, name: user.name });
 
+		// Optional redirect back to frontend with token
+		const frontendUrl = process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL;
+		if (frontendUrl) {
+			const redirectTo = new URL(frontendUrl.replace(/\/$/, '') + '/auth/callback');
+			redirectTo.searchParams.set('token', appToken);
+			return res.redirect(302, redirectTo.toString());
+		}
+
 		return res.json({
 			ok: true,
 			user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
