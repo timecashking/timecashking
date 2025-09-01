@@ -1,6 +1,6 @@
 [build]
 	publish = "web/dist"
-	command = "npm ci && npm run --prefix web build"
+	command = "npm ci --prefix web && npm run --prefix web build"
 
 [build.environment]
 	VITE_API_URL = "https://timecashking-api.onrender.com"
