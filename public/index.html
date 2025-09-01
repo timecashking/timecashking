@@ -16,6 +16,8 @@
 		.kpi{flex:1;min-width:180px;background:#0e1627;border:1px solid #23314f;border-radius:10px;padding:12px}
 		.kpi h4{margin:0 0 6px 0;font-size:14px;color:#a8b3cf;font-weight:500}
 		.kpi .val{font-size:20px;font-weight:700}
+		.kpi .val.pos{color:#22c55e}
+		.kpi .val.neg{color:#ef4444}
 	</style>
 </head>
 <body>
@@ -154,9 +156,16 @@
 				const v = Number(t.amount||0);
 				if(String(t.type).toUpperCase()==='INCOME') income += v; else expense += v;
 			}
-			document.getElementById('kpiIncome').textContent = income.toFixed(2);
-			document.getElementById('kpiExpense').textContent = expense.toFixed(2);
-			document.getElementById('kpiBalance').textContent = (income - expense).toFixed(2);
+			const bal = income - expense;
+			const incEl = document.getElementById('kpiIncome');
+			const expEl = document.getElementById('kpiExpense');
+			const balEl = document.getElementById('kpiBalance');
+			incEl.textContent = income.toFixed(2);
+			expEl.textContent = expense.toFixed(2);
+			balEl.textContent = bal.toFixed(2);
+			incEl.className = 'val pos';
+			expEl.className = 'val neg';
+			balEl.className = 'val ' + (bal >= 0 ? 'pos' : 'neg');
 		}
 		async function apiPost(path, body){
 			const token = localStorage.getItem('tck_jwt') || '';
