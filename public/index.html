@@ -66,6 +66,7 @@
 				<input id="sumStart" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
 				<input id="sumEnd" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
 				<button id="btnSummary" class="btn">Consultar resumo</button>
+				<button id="btnExportCsv" class="btn" style="margin-left:8px">Exportar CSV</button>
 			</div>
 			<pre id="out"></pre>
 		</div>
@@ -184,6 +185,23 @@
 			if(qs.length) q += '?' + qs.join('&');
 			const data = await apiGet(q);
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+		});
+
+		document.getElementById('btnExportCsv').addEventListener('click', function(){
+			const s = document.getElementById('sumStart').value;
+			const e = document.getElementById('sumEnd').value;
+			let q = '/transactions/csv';
+			const qs = [];
+			if(s) qs.push('start='+encodeURIComponent(s));
+			if(e) qs.push('end='+encodeURIComponent(e));
+			if(qs.length) q += '?' + qs.join('&');
+			const token = localStorage.getItem('tck_jwt') || '';
+			// open new window to download CSV with auth header via query token (fallback)
+			// For simplicity, append jwt as query when present (backend still checks cookie/header; token query is optional)
+			if(token){
+				q += (q.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(token);
+			}
+			window.open(api.replace(/\/$/,'') + q, '_blank');
 		});
 
 		// Carregar categorias ao abrir a página

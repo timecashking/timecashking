@@ -226,6 +226,36 @@ app.get('/transactions', authMiddleware, async (req, res) => {
 	}
 });
 
+// Export transactions as CSV for a date range
+app.get('/transactions/csv', authMiddleware, async (req, res) => {
+    try {
+        const start = req.query.start ? new Date(String(req.query.start)) : new Date(0);
+        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
+        const list = await prisma.transaction.findMany({
+            where: { userId: req.user.userId, date: { gte: start, lte: end } },
+            orderBy: { date: 'desc' },
+            include: { category: true },
+        });
+        const rows = [
+            ['date', 'type', 'amount', 'category', 'description'],
+            ...list.map(t => [
+                t.date.toISOString(),
+                t.type,
+                String(t.amount),
+                t.category ? t.category.name : '',
+                t.description || '',
+            ]),
+        ];
+        const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="transactions.csv"');
+        return res.send(csv);
+    } catch (e) {
+        console.error('GET /transactions/csv failed', e);
+        return res.status(500).json({ error: 'Transactions CSV failed', detail: String(e) });
+    }
+});
+
 // Summary: totals by type and by category within a date range
 app.get('/summary', authMiddleware, async (req, res) => {
     const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
