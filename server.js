@@ -18,7 +18,8 @@ const extraOrigins = [
 const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true); // non-browser / curl
-        if (origin === allowedOrigin || extraOrigins.includes(origin)) return callback(null, true);
+        const isNetlify = /https?:\/\/([a-z0-9-]+)\.netlify\.app$/i.test(origin);
+        if (origin === allowedOrigin || extraOrigins.includes(origin) || isNetlify) return callback(null, true);
         return callback(new Error('Not allowed by CORS: ' + origin));
     },
     credentials: true,
