@@ -1,4 +1,6 @@
 ﻿import express from 'express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { OAuth2Client } from 'google-auth-library';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
@@ -8,6 +10,8 @@ const { PrismaClient } = pkg;
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(express.json());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 
 // CORS for Netlify site (handle preflight explicitly) + allow local dev
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
@@ -384,4 +388,16 @@ app.get('/summary', authMiddleware, async (req, res) => {
 
 app.listen(port, () => {
 	console.log('server listening on port ' + port);
+});
+
+// 404 handler
+app.use((req, res) => {
+	res.status(404).json({ error: 'Not found' });
+});
+
+// 500 handler
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+	console.error('Unhandled error', err);
+	res.status(500).json({ error: 'Internal server error' });
 });
