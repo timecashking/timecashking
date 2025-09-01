@@ -185,8 +185,13 @@ app.post('/categories', authMiddleware, async (req, res) => {
 });
 
 app.get('/categories', authMiddleware, async (req, res) => {
-	const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
-	return res.json(list);
+	try {
+		const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
+		return res.json(list);
+	} catch (e) {
+		console.error('GET /categories failed', e);
+		return res.status(500).json({ error: 'Categories failed', detail: String(e) });
+	}
 });
 
 // Transactions
@@ -208,12 +213,17 @@ app.post('/transactions', authMiddleware, async (req, res) => {
 });
 
 app.get('/transactions', authMiddleware, async (req, res) => {
-	const list = await prisma.transaction.findMany({
-		where: { userId: req.user.userId },
-		orderBy: { date: 'desc' },
-		include: { category: true },
-	});
-	return res.json(list);
+	try {
+		const list = await prisma.transaction.findMany({
+			where: { userId: req.user.userId },
+			orderBy: { date: 'desc' },
+			include: { category: true },
+		});
+		return res.json(list);
+	} catch (e) {
+		console.error('GET /transactions failed', e);
+		return res.status(500).json({ error: 'Transactions failed', detail: String(e) });
+	}
 });
 
 // Summary: totals by type and by category within a date range
