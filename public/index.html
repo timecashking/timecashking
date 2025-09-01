@@ -149,6 +149,15 @@
 			document.getElementById('out').textContent = typeof value === 'string' ? value : JSON.stringify(value,null,2);
 		}
 
+		function normAmount(input){
+			if(input===undefined||input===null) return '';
+			let s = String(input).trim().replace(/\s+/g,'');
+			s = s.replace(/,/g,'.');
+			const parts = s.split('.');
+			if(parts.length>2){ const dec=parts.pop(); s = parts.join('')+'.'+dec; }
+			return s;
+		}
+
 		async function apiGet(path){
 			const token = localStorage.getItem('tck_jwt') || '';
 			const res = await fetch(api.replace(/\/$/,'') + path, {
@@ -273,7 +282,7 @@
 		document.getElementById('btnTxCreate').addEventListener('click', async function(){
 			try{
 				const type = document.getElementById('txType').value;
-				const amount = document.getElementById('txAmount').value;
+				const amount = normAmount(document.getElementById('txAmount').value);
 				const categoryId = document.getElementById('txCategory').value;
 				const description = document.getElementById('txDesc').value;
 				if(!amount){ alert('Informe o valor'); return; }
@@ -315,7 +324,7 @@
 			try{
 				const id = document.getElementById('txIdEdit').value.trim();
 				if(!id){ alert('Informe o ID da transação'); return; }
-				const amount = document.getElementById('txAmountEdit').value;
+				const amount = normAmount(document.getElementById('txAmountEdit').value);
 				const description = document.getElementById('txDescEdit').value;
 				const token = localStorage.getItem('tck_jwt') || '';
 				const body = {};
