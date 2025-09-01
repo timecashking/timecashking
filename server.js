@@ -194,6 +194,34 @@ app.get('/categories', authMiddleware, async (req, res) => {
 	}
 });
 
+app.patch('/categories/:id', authMiddleware, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
+        if (!name) return res.status(400).json({ error: 'Name is required' });
+        // ensure ownership
+        const existing = await prisma.category.findUnique({ where: { id } });
+        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
+        const updated = await prisma.category.update({ where: { id }, data: { name } });
+        return res.json(updated);
+    } catch (e) {
+        return res.status(500).json({ error: 'Update category failed', detail: String(e) });
+    }
+});
+
+app.delete('/categories/:id', authMiddleware, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        // ensure ownership
+        const existing = await prisma.category.findUnique({ where: { id } });
+        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
+        await prisma.category.delete({ where: { id } });
+        return res.json({ ok: true });
+    } catch (e) {
+        return res.status(500).json({ error: 'Delete category failed', detail: String(e) });
+    }
+});
+
 // Transactions
 app.post('/transactions', authMiddleware, async (req, res) => {
 	try {
@@ -224,6 +252,51 @@ app.get('/transactions', authMiddleware, async (req, res) => {
 		console.error('GET /transactions failed', e);
 		return res.status(500).json({ error: 'Transactions failed', detail: String(e) });
 	}
+});
+
+app.patch('/transactions/:id', authMiddleware, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        const existing = await prisma.transaction.findUnique({ where: { id } });
+        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
+
+        const typeRaw = (req.body && req.body.type) || req.query.type;
+        const type = typeRaw ? String(typeRaw).toUpperCase() : undefined;
+        if (type && !['INCOME', 'EXPENSE'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+
+        const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
+        const amount = amountRaw !== undefined ? Number(amountRaw) : undefined;
+        if (amountRaw !== undefined && (isNaN(amount) || !amount)) return res.status(400).json({ error: 'Invalid amount' });
+
+        const categoryIdRaw = (req.body && req.body.categoryId) ?? req.query.categoryId;
+        const categoryId = categoryIdRaw !== undefined && categoryIdRaw !== '' ? String(categoryIdRaw) : null;
+
+        const descriptionRaw = (req.body && req.body.description) ?? req.query.description;
+        const description = descriptionRaw !== undefined ? String(descriptionRaw) : undefined;
+
+        const data = {};
+        if (type) data.type = type;
+        if (amount !== undefined) data.amount = amount;
+        if (categoryId !== undefined) data.categoryId = categoryId; // can be null to clear
+        if (description !== undefined) data.description = description;
+
+        const updated = await prisma.transaction.update({ where: { id }, data });
+        return res.json(updated);
+    } catch (e) {
+        return res.status(500).json({ error: 'Update transaction failed', detail: String(e) });
+    }
+});
+
+app.delete('/transactions/:id', authMiddleware, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        const existing = await prisma.transaction.findUnique({ where: { id } });
+        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
+        await prisma.transaction.delete({ where: { id } });
+        return res.json({ ok: true });
+    } catch (e) {
+        return res.status(500).json({ error: 'Delete transaction failed', detail: String(e) });
+    }
 });
 
 // Export transactions as CSV for a date range

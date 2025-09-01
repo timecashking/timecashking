@@ -41,6 +41,14 @@
 						<button id="btnCatCreate" class="btn">Criar categoria</button>
 						<button id="btnCatList" class="btn">Listar categorias</button>
 					</div>
+					<div style="margin-top:8px">
+						<input id="catIdEdit" placeholder="ID da categoria" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+						<input id="catNameEdit" placeholder="Novo nome" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:6px"/>
+						<div>
+							<button id="btnCatRename" class="btn">Renomear</button>
+							<button id="btnCatDelete" class="btn" style="background:#ef4444;margin-left:8px">Excluir</button>
+						</div>
+					</div>
 				</div>
 				<div style="flex:1;min-width:280px">
 					<h4>Transação</h4>
@@ -56,6 +64,15 @@
 					<div>
 						<button id="btnTxCreate" class="btn">Criar transação</button>
 						<button id="btnTxList" class="btn">Listar transações</button>
+					</div>
+					<div style="margin-top:8px">
+						<input id="txIdEdit" placeholder="ID da transação" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+						<input id="txAmountEdit" type="number" step="0.01" placeholder="Novo valor (opcional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:6px"/>
+						<input id="txDescEdit" placeholder="Nova descrição (opcional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:6px"/>
+						<div>
+							<button id="btnTxUpdate" class="btn">Atualizar</button>
+							<button id="btnTxDelete" class="btn" style="background:#ef4444;margin-left:8px">Excluir</button>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -155,6 +172,40 @@
 			} catch(e){ setOut(String(e)); }
 		});
 
+		document.getElementById('btnCatRename').addEventListener('click', async function(){
+			try{
+				const id = document.getElementById('catIdEdit').value.trim();
+				const name = document.getElementById('catNameEdit').value.trim();
+				if(!id || !name){ alert('Informe ID e novo nome'); return; }
+				setOut('Renomeando categoria...');
+				const token = localStorage.getItem('tck_jwt') || '';
+				const res = await fetch(api.replace(/\/$/,'') + '/categories/' + encodeURIComponent(id), {
+					method: 'PATCH', credentials: 'include',
+					headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+					body: JSON.stringify({ name })
+				});
+				const data = await res.json();
+				setOut(data);
+				await refreshCategoriesIntoSelect();
+			} catch(e){ setOut(String(e)); }
+		});
+
+		document.getElementById('btnCatDelete').addEventListener('click', async function(){
+			try{
+				const id = document.getElementById('catIdEdit').value.trim();
+				if(!id){ alert('Informe o ID da categoria'); return; }
+				setOut('Excluindo categoria...');
+				const token = localStorage.getItem('tck_jwt') || '';
+				const res = await fetch(api.replace(/\/$/,'') + '/categories/' + encodeURIComponent(id), {
+					method: 'DELETE', credentials: 'include',
+					headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
+				});
+				const data = await res.json();
+				setOut(data);
+				await refreshCategoriesIntoSelect();
+			} catch(e){ setOut(String(e)); }
+		});
+
 		document.getElementById('btnTxCreate').addEventListener('click', async function(){
 			try{
 				const type = document.getElementById('txType').value;
@@ -171,6 +222,42 @@
 			try{
 				setOut('Carregando transações...');
 				const data = await apiGet('/transactions');
+				setOut(data);
+			} catch(e){ setOut(String(e)); }
+		});
+
+		document.getElementById('btnTxUpdate').addEventListener('click', async function(){
+			try{
+				const id = document.getElementById('txIdEdit').value.trim();
+				if(!id){ alert('Informe o ID da transação'); return; }
+				const amount = document.getElementById('txAmountEdit').value;
+				const description = document.getElementById('txDescEdit').value;
+				const token = localStorage.getItem('tck_jwt') || '';
+				const body = {};
+				if(amount) body.amount = amount;
+				if(description) body.description = description;
+				setOut('Atualizando transação...');
+				const res = await fetch(api.replace(/\/$/,'') + '/transactions/' + encodeURIComponent(id), {
+					method: 'PATCH', credentials: 'include',
+					headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+					body: JSON.stringify(body)
+				});
+				const data = await res.json();
+				setOut(data);
+			} catch(e){ setOut(String(e)); }
+		});
+
+		document.getElementById('btnTxDelete').addEventListener('click', async function(){
+			try{
+				const id = document.getElementById('txIdEdit').value.trim();
+				if(!id){ alert('Informe o ID da transação'); return; }
+				setOut('Excluindo transação...');
+				const token = localStorage.getItem('tck_jwt') || '';
+				const res = await fetch(api.replace(/\/$/,'') + '/transactions/' + encodeURIComponent(id), {
+					method: 'DELETE', credentials: 'include',
+					headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
+				});
+				const data = await res.json();
 				setOut(data);
 			} catch(e){ setOut(String(e)); }
 		});
