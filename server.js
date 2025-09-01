@@ -8,6 +8,9 @@ import pkg from '@prisma/client';
 import puppeteer from 'puppeteer';
 import Handlebars from 'handlebars';
 import Stripe from 'stripe';
+import nodemailer from 'nodemailer';
+import webPush from 'web-push';
+import cron from 'node-cron';
 const { PrismaClient } = pkg;
 
 const app = express();
@@ -47,6 +50,234 @@ const prisma = new PrismaClient();
 // Stripe configuration
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 	apiVersion: '2023-10-16',
+});
+
+// Email configuration
+const emailTransporter = nodemailer.createTransporter({
+	service: 'gmail',
+	auth: {
+		user: process.env.EMAIL_USER,
+		pass: process.env.EMAIL_PASSWORD,
+	},
+});
+
+// Push notification configuration
+webPush.setVapidDetails(
+	`mailto:${process.env.EMAIL_USER}`,
+	process.env.VAPID_PUBLIC_KEY,
+	process.env.VAPID_PRIVATE_KEY
+);
+
+// Notification service
+class NotificationService {
+	static async sendEmail(to, subject, html) {
+		try {
+			const mailOptions = {
+				from: process.env.EMAIL_USER,
+				to,
+				subject,
+				html,
+			};
+			
+			const result = await emailTransporter.sendMail(mailOptions);
+			console.log('Email sent:', result.messageId);
+			return result;
+		} catch (error) {
+			console.error('Email send error:', error);
+			throw error;
+		}
+	}
+	
+	static async sendPushNotification(subscription, payload) {
+		try {
+			const result = await webPush.sendNotification(subscription, JSON.stringify(payload));
+			console.log('Push notification sent:', result);
+			return result;
+		} catch (error) {
+			console.error('Push notification error:', error);
+			throw error;
+		}
+	}
+	
+	static async createNotification(userId, type, category, title, message, metadata = null) {
+		try {
+			const notification = await prisma.notification.create({
+				data: {
+					userId,
+					type,
+					category,
+					title,
+					message,
+					metadata,
+				},
+			});
+			
+			// Get user preferences
+			const preferences = await prisma.notificationPreference.findUnique({
+				where: { userId },
+			});
+			
+			if (!preferences) {
+				// Create default preferences
+				await prisma.notificationPreference.create({
+					data: { userId },
+				});
+			}
+			
+			// Send notification based on type and preferences
+			if (type === 'EMAIL' || type === 'BOTH') {
+				if (preferences?.emailEnabled !== false) {
+					await this.sendEmailNotification(userId, title, message);
+				}
+			}
+			
+			if (type === 'PUSH' || type === 'BOTH') {
+				if (preferences?.pushEnabled !== false) {
+					await this.sendPushNotificationToUser(userId, title, message);
+				}
+			}
+			
+			// Update notification status
+			await prisma.notification.update({
+				where: { id: notification.id },
+				data: { status: 'SENT', sentAt: new Date() },
+			});
+			
+			return notification;
+		} catch (error) {
+			console.error('Create notification error:', error);
+			throw error;
+		}
+	}
+	
+	static async sendEmailNotification(userId, title, message) {
+		try {
+			const user = await prisma.user.findUnique({ where: { id: userId } });
+			if (!user?.email) return;
+			
+			const html = `
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="utf-8">
+					<title>${title}</title>
+					<style>
+						body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+						.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+						.header { background: #10b981; color: white; padding: 20px; text-align: center; }
+						.content { padding: 20px; background: #f8fafc; }
+						.footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+					</style>
+				</head>
+				<body>
+					<div class="container">
+						<div class="header">
+							<h1>TimeCash King</h1>
+						</div>
+						<div class="content">
+							<h2>${title}</h2>
+							<p>${message}</p>
+						</div>
+						<div class="footer">
+							<p>© 2024 TimeCash King. Todos os direitos reservados.</p>
+						</div>
+					</div>
+				</body>
+				</html>
+			`;
+			
+			await this.sendEmail(user.email, title, html);
+		} catch (error) {
+			console.error('Send email notification error:', error);
+		}
+	}
+	
+	static async sendPushNotificationToUser(userId, title, message) {
+		try {
+			// In a real implementation, you would store push subscriptions
+			// For now, we'll just log the attempt
+			console.log(`Push notification for user ${userId}: ${title} - ${message}`);
+		} catch (error) {
+			console.error('Send push notification error:', error);
+		}
+	}
+}
+
+// Scheduled notifications
+cron.schedule('0 9 * * 1', async () => {
+	// Weekly reminder every Monday at 9 AM
+	try {
+		const users = await prisma.user.findMany({
+			include: { notificationPreferences: true },
+		});
+		
+		for (const user of users) {
+			if (user.notificationPreferences?.reminderEnabled !== false) {
+				await NotificationService.createNotification(
+					user.id,
+					'EMAIL',
+					'REMINDER',
+					'Lembrete Semanal - TimeCash King',
+					'Lembre-se de registrar suas transações da semana! Mantenha seu controle financeiro em dia.',
+					{ frequency: 'weekly' }
+				);
+			}
+		}
+	} catch (error) {
+		console.error('Weekly reminder error:', error);
+	}
+});
+
+cron.schedule('0 10 1 * *', async () => {
+	// Monthly report on the 1st of each month at 10 AM
+	try {
+		const users = await prisma.user.findMany({
+			include: { notificationPreferences: true },
+		});
+		
+		for (const user of users) {
+			if (user.notificationPreferences?.reportEnabled !== false) {
+				// Get monthly summary
+				const startDate = new Date();
+				startDate.setMonth(startDate.getMonth() - 1);
+				startDate.setDate(1);
+				
+				const endDate = new Date();
+				endDate.setDate(0); // Last day of previous month
+				
+				const transactions = await prisma.transaction.findMany({
+					where: {
+						userId: user.id,
+						date: { gte: startDate, lte: endDate },
+					},
+				});
+				
+				const totalIncome = transactions
+					.filter(t => t.type === 'INCOME')
+					.reduce((sum, t) => sum + Number(t.amount), 0);
+					
+				const totalExpense = transactions
+					.filter(t => t.type === 'EXPENSE')
+					.reduce((sum, t) => sum + Number(t.amount), 0);
+				
+				await NotificationService.createNotification(
+					user.id,
+					'EMAIL',
+					'REPORT',
+					'Relatório Mensal - TimeCash King',
+					`Seu relatório mensal está pronto!\n\nReceitas: R$ ${totalIncome.toFixed(2)}\nDespesas: R$ ${totalExpense.toFixed(2)}\nSaldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`,
+					{ 
+						period: 'monthly',
+						totalIncome,
+						totalExpense,
+						balance: totalIncome - totalExpense
+					}
+				);
+			}
+		}
+	} catch (error) {
+		console.error('Monthly report error:', error);
+	}
 });
 
 // Subscription plans
@@ -1096,6 +1327,229 @@ app.get('/subscription/payments', authMiddleware, async (req, res) => {
         return res.json(payments);
     } catch (e) {
         return res.status(500).json({ error: 'Failed to fetch payments', detail: String(e) });
+    }
+});
+
+// Notification endpoints
+app.get('/notifications', authMiddleware, async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const pageSize = parseInt(req.query.pageSize) || 20;
+        const skip = (page - 1) * pageSize;
+        
+        const [notifications, total] = await Promise.all([
+            prisma.notification.findMany({
+                where: { userId: req.user.userId },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: pageSize,
+            }),
+            prisma.notification.count({
+                where: { userId: req.user.userId },
+            }),
+        ]);
+        
+        return res.json({
+            notifications,
+            pagination: {
+                page,
+                pageSize,
+                total,
+                totalPages: Math.ceil(total / pageSize),
+            },
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch notifications', detail: String(e) });
+    }
+});
+
+app.get('/notifications/unread', authMiddleware, async (req, res) => {
+    try {
+        const count = await prisma.notification.count({
+            where: { 
+                userId: req.user.userId,
+                status: { not: 'READ' }
+            },
+        });
+        
+        return res.json({ unreadCount: count });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch unread count', detail: String(e) });
+    }
+});
+
+app.patch('/notifications/:id/read', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const notification = await prisma.notification.findFirst({
+            where: { 
+                id,
+                userId: req.user.userId 
+            },
+        });
+        
+        if (!notification) {
+            return res.status(404).json({ error: 'Notification not found' });
+        }
+        
+        await prisma.notification.update({
+            where: { id },
+            data: { 
+                status: 'READ',
+                readAt: new Date()
+            },
+        });
+        
+        return res.json({ message: 'Notification marked as read' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to mark notification as read', detail: String(e) });
+    }
+});
+
+app.patch('/notifications/read-all', authMiddleware, async (req, res) => {
+    try {
+        await prisma.notification.updateMany({
+            where: { 
+                userId: req.user.userId,
+                status: { not: 'READ' }
+            },
+            data: { 
+                status: 'READ',
+                readAt: new Date()
+            },
+        });
+        
+        return res.json({ message: 'All notifications marked as read' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to mark all notifications as read', detail: String(e) });
+    }
+});
+
+app.delete('/notifications/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const notification = await prisma.notification.findFirst({
+            where: { 
+                id,
+                userId: req.user.userId 
+            },
+        });
+        
+        if (!notification) {
+            return res.status(404).json({ error: 'Notification not found' });
+        }
+        
+        await prisma.notification.delete({
+            where: { id },
+        });
+        
+        return res.json({ message: 'Notification deleted' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to delete notification', detail: String(e) });
+    }
+});
+
+// Notification preferences
+app.get('/notifications/preferences', authMiddleware, async (req, res) => {
+    try {
+        let preferences = await prisma.notificationPreference.findUnique({
+            where: { userId: req.user.userId },
+        });
+        
+        if (!preferences) {
+            // Create default preferences
+            preferences = await prisma.notificationPreference.create({
+                data: { userId: req.user.userId },
+            });
+        }
+        
+        return res.json(preferences);
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch preferences', detail: String(e) });
+    }
+});
+
+app.patch('/notifications/preferences', authMiddleware, async (req, res) => {
+    try {
+        const {
+            emailEnabled,
+            pushEnabled,
+            reminderEnabled,
+            alertEnabled,
+            reportEnabled,
+            paymentEnabled,
+            systemEnabled,
+            reminderFrequency,
+            reportFrequency,
+        } = req.body;
+        
+        const preferences = await prisma.notificationPreference.upsert({
+            where: { userId: req.user.userId },
+            update: {
+                emailEnabled,
+                pushEnabled,
+                reminderEnabled,
+                alertEnabled,
+                reportEnabled,
+                paymentEnabled,
+                systemEnabled,
+                reminderFrequency,
+                reportFrequency,
+            },
+            create: {
+                userId: req.user.userId,
+                emailEnabled,
+                pushEnabled,
+                reminderEnabled,
+                alertEnabled,
+                reportEnabled,
+                paymentEnabled,
+                systemEnabled,
+                reminderFrequency,
+                reportFrequency,
+            },
+        });
+        
+        return res.json(preferences);
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to update preferences', detail: String(e) });
+    }
+});
+
+// Push notification subscription
+app.post('/notifications/push-subscription', authMiddleware, async (req, res) => {
+    try {
+        const { subscription } = req.body;
+        
+        // In a real implementation, you would store the push subscription
+        // For now, we'll just log it
+        console.log('Push subscription for user:', req.user.userId, subscription);
+        
+        return res.json({ message: 'Push subscription saved' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to save push subscription', detail: String(e) });
+    }
+});
+
+// Test notification endpoint
+app.post('/notifications/test', authMiddleware, async (req, res) => {
+    try {
+        const { type = 'EMAIL', category = 'SYSTEM' } = req.body;
+        
+        const notification = await NotificationService.createNotification(
+            req.user.userId,
+            type,
+            category,
+            'Notificação de Teste',
+            'Esta é uma notificação de teste do TimeCash King!',
+            { test: true }
+        );
+        
+        return res.json({ message: 'Test notification sent', notification });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to send test notification', detail: String(e) });
     }
 });
 

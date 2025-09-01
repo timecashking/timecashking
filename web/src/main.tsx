@@ -9,6 +9,7 @@ import { Admin } from './pages/Admin';
 import { Manager } from './pages/Manager';
 import { Reports } from './pages/Reports';
 import { Subscription } from './pages/Subscription';
+import { Notifications } from './pages/Notifications';
 
 const router = createBrowserRouter([
 	{
@@ -44,6 +45,10 @@ const router = createBrowserRouter([
 		element: <Subscription />,
 	},
 	{
+		path: '/notifications',
+		element: <Notifications />,
+	},
+	{
 		path: '/auth/callback',
 		element: <AuthCallback />,
 	},
@@ -62,5 +67,7 @@ function App() {
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
+
+
 
 

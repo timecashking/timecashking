@@ -30,6 +30,27 @@ enum PaymentStatus {
 	REFUNDED
 }
 
+enum NotificationType {
+	EMAIL
+	PUSH
+	BOTH
+}
+
+enum NotificationCategory {
+	REMINDER
+	ALERT
+	REPORT
+	PAYMENT
+	SYSTEM
+}
+
+enum NotificationStatus {
+	PENDING
+	SENT
+	FAILED
+	READ
+}
+
 model User {
 	id        String   @id @default(cuid())
 	googleId  String   @unique
@@ -40,10 +61,12 @@ model User {
 	createdAt DateTime @default(now())
 
 	// relations
-	categories   Category[]
-	transactions Transaction[]
-	subscription Subscription?
-	payments     Payment[]
+	categories      Category[]
+	transactions    Transaction[]
+	subscription    Subscription?
+	payments        Payment[]
+	notifications   Notification[]
+	notificationPreferences NotificationPreference?
 }
 
 enum TransactionType {
@@ -106,4 +129,36 @@ model Payment {
 	description       String?
 	paidAt            DateTime?
 	createdAt         DateTime      @default(now())
+}
+
+model Notification {
+	id          String             @id @default(cuid())
+	userId      String
+	user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+	type        NotificationType
+	category    NotificationCategory
+	title       String
+	message     String
+	status      NotificationStatus @default(PENDING)
+	metadata    Json?              // Additional data like transaction ID, amount, etc.
+	sentAt      DateTime?
+	readAt      DateTime?
+	createdAt   DateTime           @default(now())
+}
+
+model NotificationPreference {
+	id                    String   @id @default(cuid())
+	userId                String   @unique
+	user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+	emailEnabled          Boolean  @default(true)
+	pushEnabled           Boolean  @default(true)
+	reminderEnabled       Boolean  @default(true)
+	alertEnabled          Boolean  @default(true)
+	reportEnabled         Boolean  @default(true)
+	paymentEnabled        Boolean  @default(true)
+	systemEnabled         Boolean  @default(true)
+	reminderFrequency     String   @default("weekly") // daily, weekly, monthly
+	reportFrequency       String   @default("monthly") // weekly, monthly, quarterly
+	createdAt             DateTime @default(now())
+	updatedAt             DateTime @updatedAt
 }
