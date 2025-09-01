@@ -53,6 +53,23 @@ function signJwt(payload) {
 	return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
 }
 
+// Helpers: validation & ownership
+function badRequest(res, messages) {
+	const details = Array.isArray(messages) ? messages : [String(messages)];
+	return res.status(400).json({ error: 'ValidationError', details });
+}
+
+async function ensureCategoryOwned(categoryId, userId) {
+	if (!categoryId) return null;
+	const cat = await prisma.category.findUnique({ where: { id: String(categoryId) } });
+	if (!cat || cat.userId !== userId) {
+		const err = new Error('CATEGORY_NOT_FOUND_OR_NOT_OWNED');
+		err.code = 'CATEGORY_NOT_OWNED';
+		throw err;
+	}
+	return cat;
+}
+
 function getTokenFromRequest(req) {
 	// 1) Authorization header
 	const auth = req.headers.authorization || '';
@@ -240,12 +257,17 @@ app.delete('/categories/:id', authMiddleware, async (req, res) => {
 // Transactions
 app.post('/transactions', authMiddleware, async (req, res) => {
 	try {
+		const errors = [];
 		const type = ((req.body && req.body.type) || req.query.type || '').toString().toUpperCase();
-		const amount = Number((req.body && req.body.amount) ?? req.query.amount ?? '0');
+		if (!['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
+		const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
+		const amount = Number(amountRaw);
+		if (amountRaw === undefined || isNaN(amount) || amount <= 0) errors.push('amount must be a positive number');
 		const categoryId = (req.body && req.body.categoryId) ? String(req.body.categoryId) : (req.query.categoryId ? String(req.query.categoryId) : undefined);
 		const description = (req.body && req.body.description) ? String(req.body.description) : (req.query.description ? String(req.query.description) : undefined);
-		if (!['INCOME', 'EXPENSE'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
-		if (!amount || isNaN(amount)) return res.status(400).json({ error: 'Invalid amount' });
+		if (description && description.length > 200) errors.push('description must be <= 200 chars');
+		if (errors.length) return badRequest(res, errors);
+		await ensureCategoryOwned(categoryId, req.user.userId);
 		const tx = await prisma.transaction.create({
 			data: { type, amount, userId: req.user.userId, categoryId, description },
 		});
@@ -300,19 +322,23 @@ app.patch('/transactions/:id', authMiddleware, async (req, res) => {
         const existing = await prisma.transaction.findUnique({ where: { id } });
         if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
 
+        const errors = [];
         const typeRaw = (req.body && req.body.type) || req.query.type;
         const type = typeRaw ? String(typeRaw).toUpperCase() : undefined;
-        if (type && !['INCOME', 'EXPENSE'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+        if (type && !['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
 
         const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
         const amount = amountRaw !== undefined ? Number(amountRaw) : undefined;
-        if (amountRaw !== undefined && (isNaN(amount) || !amount)) return res.status(400).json({ error: 'Invalid amount' });
+        if (amountRaw !== undefined && (isNaN(amount) || amount <= 0)) errors.push('amount must be a positive number');
 
         const categoryIdRaw = (req.body && req.body.categoryId) ?? req.query.categoryId;
         const categoryId = categoryIdRaw !== undefined && categoryIdRaw !== '' ? String(categoryIdRaw) : null;
 
         const descriptionRaw = (req.body && req.body.description) ?? req.query.description;
         const description = descriptionRaw !== undefined ? String(descriptionRaw) : undefined;
+        if (description !== undefined && description.length > 200) errors.push('description must be <= 200 chars');
+        if (errors.length) return badRequest(res, errors);
+        await ensureCategoryOwned(categoryId, req.user.userId);
 
         const data = {};
         if (type) data.type = type;
