@@ -103,12 +103,13 @@
 			});
 			return res.json().catch(()=>({ error: 'empty_response', status: res.status }));
 		}
-		async function apiPost(path){
+		async function apiPost(path, body){
 			const token = localStorage.getItem('tck_jwt') || '';
 			const res = await fetch(api.replace(/\/$/,'') + path, {
 				method:'POST',
 				credentials: 'include',
-				headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
+				headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+				body: body ? JSON.stringify(body) : undefined,
 			});
 			return res.json().catch(()=>({ error: 'empty_response', status: res.status }));
 		}
@@ -135,7 +136,7 @@
 				const name = document.getElementById('catName').value.trim();
 				if(!name){ alert('Informe o nome da categoria'); return; }
 				setOut('Criando categoria...');
-				const data = await apiPost('/categories?name='+encodeURIComponent(name));
+				const data = await apiPost('/categories', { name });
 				setOut(data);
 				await refreshCategoriesIntoSelect();
 			} catch(e){ setOut(String(e)); }
@@ -155,11 +156,8 @@
 				const categoryId = document.getElementById('txCategory').value;
 				const description = document.getElementById('txDesc').value;
 				if(!amount){ alert('Informe o valor'); return; }
-				let q = '/transactions?type='+encodeURIComponent(type)+'&amount='+encodeURIComponent(amount);
-				if(categoryId) q += '&categoryId='+encodeURIComponent(categoryId);
-				if(description) q += '&description='+encodeURIComponent(description);
 				setOut('Criando transação...');
-				const data = await apiPost(q);
+				const data = await apiPost('/transactions', { type, amount, categoryId: categoryId || undefined, description: description || undefined });
 				setOut(data);
 			} catch(e){ setOut(String(e)); }
 		});

@@ -7,6 +7,7 @@ const { PrismaClient } = pkg;
 
 const app = express();
 const port = process.env.PORT || 3000;
+app.use(express.json());
 
 // CORS for Netlify site (handle preflight explicitly) + allow local dev
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
@@ -174,7 +175,7 @@ app.post('/auth/logout', (req, res) => {
 // Categories
 app.post('/categories', authMiddleware, async (req, res) => {
 	try {
-		const name = (req.query.name || '').toString().trim();
+		const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
 		if (!name) return res.status(400).json({ error: 'Name is required' });
 		const cat = await prisma.category.create({ data: { name, userId: req.user.userId } });
 		return res.json(cat);
@@ -191,10 +192,10 @@ app.get('/categories', authMiddleware, async (req, res) => {
 // Transactions
 app.post('/transactions', authMiddleware, async (req, res) => {
 	try {
-		const type = (req.query.type || '').toString().toUpperCase();
-		const amount = Number(req.query.amount || '0');
-		const categoryId = req.query.categoryId ? req.query.categoryId.toString() : undefined;
-		const description = req.query.description ? req.query.description.toString() : undefined;
+		const type = ((req.body && req.body.type) || req.query.type || '').toString().toUpperCase();
+		const amount = Number((req.body && req.body.amount) ?? req.query.amount ?? '0');
+		const categoryId = (req.body && req.body.categoryId) ? String(req.body.categoryId) : (req.query.categoryId ? String(req.query.categoryId) : undefined);
+		const description = (req.body && req.body.description) ? String(req.body.description) : (req.query.description ? String(req.query.description) : undefined);
 		if (!['INCOME', 'EXPENSE'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
 		if (!amount || isNaN(amount)) return res.status(400).json({ error: 'Invalid amount' });
 		const tx = await prisma.transaction.create({
