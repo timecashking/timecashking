@@ -70,6 +70,21 @@ async function ensureCategoryOwned(categoryId, userId) {
 	return cat;
 }
 
+function normalizeAmount(input) {
+	if (input === undefined || input === null) return undefined;
+	let s = String(input).trim().replace(/\s+/g, '');
+	// Convert decimal comma to dot
+	s = s.replace(/,/g, '.');
+	// Remove thousands separators if multiple dots exist
+	const parts = s.split('.');
+	if (parts.length > 2) {
+		const dec = parts.pop();
+		s = parts.join('') + '.' + dec;
+	}
+	const n = Number(s);
+	return isNaN(n) ? NaN : n;
+}
+
 function getTokenFromRequest(req) {
 	// 1) Authorization header
 	const auth = req.headers.authorization || '';
@@ -269,7 +284,7 @@ app.post('/transactions', authMiddleware, async (req, res) => {
 		const type = ((req.body && req.body.type) || req.query.type || '').toString().toUpperCase();
 		if (!['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
 		const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
-		const amount = Number(amountRaw);
+		const amount = normalizeAmount(amountRaw);
 		if (amountRaw === undefined || isNaN(amount) || amount <= 0) errors.push('amount must be a positive number');
 		const categoryId = (req.body && req.body.categoryId) ? String(req.body.categoryId) : (req.query.categoryId ? String(req.query.categoryId) : undefined);
 		const description = (req.body && req.body.description) ? String(req.body.description) : (req.query.description ? String(req.query.description) : undefined);
@@ -336,7 +351,7 @@ app.patch('/transactions/:id', authMiddleware, async (req, res) => {
         if (type && !['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
 
         const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
-        const amount = amountRaw !== undefined ? Number(amountRaw) : undefined;
+        const amount = amountRaw !== undefined ? normalizeAmount(amountRaw) : undefined;
         if (amountRaw !== undefined && (isNaN(amount) || amount <= 0)) errors.push('amount must be a positive number');
 
         const categoryIdRaw = (req.body && req.body.categoryId) ?? req.query.categoryId;
