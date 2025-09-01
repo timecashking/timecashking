@@ -31,6 +31,16 @@
 				<button id="btnMe" class="btn">Chamar /me</button>
 				<button id="btnLogout" class="btn" style="background:#ef4444;margin-left:8px">Sair</button>
 			</p>
+			<hr/>
+			<h3>Financeiro (teste rápido)</h3>
+			<p>
+				<button id="btnCatNew" class="btn">Criar categoria exemplo</button>
+				<button id="btnCatList" class="btn">Listar categorias</button>
+			</p>
+			<p>
+				<button id="btnTxNew" class="btn">Criar transação exemplo</button>
+				<button id="btnTxList" class="btn">Listar transações</button>
+			</p>
 			<pre id="out"></pre>
 		</div>
 	</div>
@@ -55,25 +65,45 @@
 			document.getElementById('out').textContent = 'Token presente. Clique em “Chamar /me” para ver seus dados.';
 		}
 
+		async function apiGet(path){
+			const res = await fetch(api.replace(/\/$/,'') + path, { credentials: 'include' });
+			return res.json();
+		}
+		async function apiPost(path){
+			const res = await fetch(api.replace(/\/$/,'') + path, { method:'POST', credentials: 'include' });
+			return res.json();
+		}
+
 		document.getElementById('btnMe').addEventListener('click', async function(){
-			try {
-				const res = await fetch(api.replace(/\/$/,'') + '/me', {
-					headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('tck_jwt')||'') },
-					credentials: 'include'
-				});
-				const data = await res.json();
-				document.getElementById('out').textContent = JSON.stringify(data, null, 2);
-			} catch (e) {
-				document.getElementById('out').textContent = String(e);
-			}
+			const data = await apiGet('/me');
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
 
 		document.getElementById('btnLogout').addEventListener('click', async function(){
-			try{
-				await fetch(api.replace(/\/$/,'') + '/auth/logout', { method: 'POST', credentials: 'include' });
-			}catch(e){}
+			try{ await apiPost('/auth/logout'); }catch(e){}
 			localStorage.removeItem('tck_jwt');
 			location.reload();
+		});
+
+		document.getElementById('btnCatNew').addEventListener('click', async function(){
+			const name = 'Categoria ' + Math.floor(Math.random()*1000);
+			const data = await apiPost('/categories?name='+encodeURIComponent(name));
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+		});
+		document.getElementById('btnCatList').addEventListener('click', async function(){
+			const data = await apiGet('/categories');
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+		});
+
+		document.getElementById('btnTxNew').addEventListener('click', async function(){
+			const amount = (Math.random()*100).toFixed(2);
+			const type = Math.random()>0.5 ? 'INCOME' : 'EXPENSE';
+			const data = await apiPost('/transactions?type='+type+'&amount='+amount);
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+		});
+		document.getElementById('btnTxList').addEventListener('click', async function(){
+			const data = await apiGet('/transactions');
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
 	})();
 	</script>

@@ -154,6 +154,50 @@ app.post('/auth/logout', (req, res) => {
 	return res.json({ ok: true });
 });
 
+// Categories
+app.post('/categories', authMiddleware, async (req, res) => {
+	try {
+		const name = (req.query.name || '').toString().trim();
+		if (!name) return res.status(400).json({ error: 'Name is required' });
+		const cat = await prisma.category.create({ data: { name, userId: req.user.userId } });
+		return res.json(cat);
+	} catch (e) {
+		return res.status(500).json({ error: 'Create category failed', detail: String(e) });
+	}
+});
+
+app.get('/categories', authMiddleware, async (req, res) => {
+	const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
+	return res.json(list);
+});
+
+// Transactions
+app.post('/transactions', authMiddleware, async (req, res) => {
+	try {
+		const type = (req.query.type || '').toString().toUpperCase();
+		const amount = Number(req.query.amount || '0');
+		const categoryId = req.query.categoryId ? req.query.categoryId.toString() : undefined;
+		const description = req.query.description ? req.query.description.toString() : undefined;
+		if (!['INCOME', 'EXPENSE'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+		if (!amount || isNaN(amount)) return res.status(400).json({ error: 'Invalid amount' });
+		const tx = await prisma.transaction.create({
+			data: { type, amount, userId: req.user.userId, categoryId, description },
+		});
+		return res.json(tx);
+	} catch (e) {
+		return res.status(500).json({ error: 'Create transaction failed', detail: String(e) });
+	}
+});
+
+app.get('/transactions', authMiddleware, async (req, res) => {
+	const list = await prisma.transaction.findMany({
+		where: { userId: req.user.userId },
+		orderBy: { date: 'desc' },
+		include: { category: true },
+	});
+	return res.json(list);
+});
+
 app.listen(port, () => {
 	console.log('server listening on port ' + port);
 });
