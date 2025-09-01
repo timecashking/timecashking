@@ -198,6 +198,37 @@ app.get('/transactions', authMiddleware, async (req, res) => {
 	return res.json(list);
 });
 
+// Summary: totals by type and by category within a date range
+app.get('/summary', authMiddleware, async (req, res) => {
+    const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = req.query.end ? new Date(String(req.query.end)) : new Date();
+    try {
+        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
+
+        const [income, expense, byCategory] = await Promise.all([
+            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
+            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
+            prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
+        ]);
+
+        const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
+        const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
+        const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
+
+        return res.json({
+            period: { start, end },
+            totals: {
+                income: Number(income._sum.amount || 0),
+                expense: Number(expense._sum.amount || 0),
+                balance: Number(income._sum.amount || 0) - Number(expense._sum.amount || 0),
+            },
+            byCategory: byCategory.map(b => ({ categoryId: b.categoryId, category: idToName[b.categoryId] || '(Sem categoria)', amount: Number(b._sum.amount || 0) })),
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Summary failed', detail: String(e) });
+    }
+});
+
 app.listen(port, () => {
 	console.log('server listening on port ' + port);
 });

@@ -59,6 +59,14 @@
 					</div>
 				</div>
 			</div>
+
+			<hr/>
+			<h3>Resumo</h3>
+			<div style="display:flex;gap:8px;flex-wrap:wrap">
+				<input id="sumStart" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+				<input id="sumEnd" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+				<button id="btnSummary" class="btn">Consultar resumo</button>
+			</div>
 			<pre id="out"></pre>
 		</div>
 	</div>
@@ -135,6 +143,18 @@
 		});
 		document.getElementById('btnTxList').addEventListener('click', async function(){
 			const data = await apiGet('/transactions');
+			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+		});
+
+		document.getElementById('btnSummary').addEventListener('click', async function(){
+			const s = document.getElementById('sumStart').value;
+			const e = document.getElementById('sumEnd').value;
+			let q = '/summary';
+			const qs = [];
+			if(s) qs.push('start='+encodeURIComponent(s));
+			if(e) qs.push('end='+encodeURIComponent(e));
+			if(qs.length) q += '?' + qs.join('&');
+			const data = await apiGet(q);
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
 
