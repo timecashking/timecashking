@@ -8,9 +8,16 @@ const { PrismaClient } = pkg;
 const app = express();
 const port = process.env.PORT || 3000;
 
-// CORS for Netlify site
+// CORS for Netlify site (handle preflight explicitly)
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
-app.use(cors({ origin: allowedOrigin, credentials: true }));
+const corsOptions = {
+    origin: allowedOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 const prisma = new PrismaClient();
 
