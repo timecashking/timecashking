@@ -11,13 +11,133 @@ import Stripe from 'stripe';
 import nodemailer from 'nodemailer';
 import webPush from 'web-push';
 import cron from 'node-cron';
+import axios from 'axios';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { body, query, validationResult } from 'express-validator';
+import compression from 'compression';
+import morgan from 'morgan';
 const { PrismaClient } = pkg;
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Swagger configuration
+const swaggerOptions = {
+	definition: {
+		openapi: '3.0.0',
+		info: {
+			title: 'TimeCash King API',
+			version: '1.0.0',
+			description: 'API completa para o sistema de gestão financeira TimeCash King',
+			contact: {
+				name: 'TimeCash King Support',
+				email: 'support@timecashking.com',
+			},
+		},
+		servers: [
+			{
+				url: 'https://timecashking-api.onrender.com',
+				description: 'Production server',
+			},
+			{
+				url: 'http://localhost:3000',
+				description: 'Development server',
+			},
+		],
+		components: {
+			securitySchemes: {
+				bearerAuth: {
+					type: 'http',
+					scheme: 'bearer',
+					bearerFormat: 'JWT',
+				},
+			},
+		},
+		security: [
+			{
+				bearerAuth: [],
+			},
+		],
+	},
+	apis: ['./server.js'], // Path to the API docs
+};
+
+const specs = swaggerJsdoc(swaggerOptions);
+
+// External API services
+class ExternalAPIService {
+	static async getCurrencyRates() {
+		try {
+			const response = await axios.get('https://api.exchangerate-api.com/v4/latest/BRL');
+			return response.data;
+		} catch (error) {
+			console.error('Currency API error:', error);
+			return null;
+		}
+	}
+	
+	static async getCryptoRates() {
+		try {
+			const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=brl,usd');
+			return response.data;
+		} catch (error) {
+			console.error('Crypto API error:', error);
+			return null;
+		}
+	}
+	
+	static async getStockPrice(symbol) {
+		try {
+			const response = await axios.get(`https://api.twelvedata.com/price?symbol=${symbol}&apikey=${process.env.TWELVE_DATA_API_KEY}`);
+			return response.data;
+		} catch (error) {
+			console.error('Stock API error:', error);
+			return null;
+		}
+	}
+	
+	static async getWeatherData(city) {
+		try {
+			const response = await axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`);
+			return response.data;
+		} catch (error) {
+			console.error('Weather API error:', error);
+			return null;
+		}
+	}
+}
+
 app.use(express.json());
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
+
+// Enhanced middleware
+app.use(compression());
+app.use(morgan('combined'));
+
+// API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+
+// Enhanced rate limiting
+const apiLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 100, // limit each IP to 100 requests per windowMs
+	message: 'Too many requests from this IP, please try again later.',
+	standardHeaders: true,
+	legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 5, // limit each IP to 5 requests per windowMs
+	message: 'Too many authentication attempts, please try again later.',
+	standardHeaders: true,
+	legacyHeaders: false,
+});
+
+app.use('/api/', apiLimiter);
+app.use('/auth/', authLimiter);
 
 // CORS for Netlify site (handle preflight explicitly) + allow local dev
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
@@ -521,8 +641,822 @@ function requireRole(allowedRoles) {
 	};
 }
 
-app.get('/health', (req, res) => {
-	res.status(200).send('ok');
+
+
+/**
+ * @swagger
+ * /api/health:
+ *   get:
+ *     summary: Health check endpoint
+ *     description: Returns the health status of the API
+ *     tags: [System]
+ *     responses:
+ *       200:
+ *         description: API is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "healthy"
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 uptime:
+ *                   type: number
+ *                   example: 1234567
+ */
+app.get('/api/health', (req, res) => {
+	res.json({
+		status: 'healthy',
+		timestamp: new Date().toISOString(),
+		uptime: process.uptime(),
+		version: '1.0.0',
+		environment: process.env.NODE_ENV || 'development',
+	});
+});
+
+/**
+ * @swagger
+ * /api/currency/rates:
+ *   get:
+ *     summary: Get currency exchange rates
+ *     description: Returns current exchange rates for BRL
+ *     tags: [External APIs]
+ *     responses:
+ *       200:
+ *         description: Currency rates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 base:
+ *                   type: string
+ *                   example: "BRL"
+ *                 rates:
+ *                   type: object
+ *                   example: {"USD": 0.21, "EUR": 0.19}
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/currency/rates', async (req, res) => {
+	try {
+		const rates = await ExternalAPIService.getCurrencyRates();
+		if (rates) {
+			res.json(rates);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch currency rates' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Currency API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/crypto/rates:
+ *   get:
+ *     summary: Get cryptocurrency rates
+ *     description: Returns current rates for Bitcoin and Ethereum
+ *     tags: [External APIs]
+ *     responses:
+ *       200:
+ *         description: Crypto rates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 bitcoin:
+ *                   type: object
+ *                   properties:
+ *                     brl:
+ *                       type: number
+ *                       example: 250000
+ *                     usd:
+ *                       type: number
+ *                       example: 50000
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/crypto/rates', async (req, res) => {
+	try {
+		const rates = await ExternalAPIService.getCryptoRates();
+		if (rates) {
+			res.json(rates);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch crypto rates' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Crypto API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/stock/{symbol}:
+ *   get:
+ *     summary: Get stock price
+ *     description: Returns current stock price for a given symbol
+ *     tags: [External APIs]
+ *     parameters:
+ *       - in: path
+ *         name: symbol
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stock symbol (e.g., AAPL, GOOGL)
+ *     responses:
+ *       200:
+ *         description: Stock price retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 symbol:
+ *                   type: string
+ *                   example: "AAPL"
+ *                 price:
+ *                   type: string
+ *                   example: "150.25"
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/stock/:symbol', async (req, res) => {
+	try {
+		const { symbol } = req.params;
+		const price = await ExternalAPIService.getStockPrice(symbol);
+		if (price) {
+			res.json(price);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch stock price' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Stock API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/weather/{city}:
+ *   get:
+ *     summary: Get weather data
+ *     description: Returns current weather data for a given city
+ *     tags: [External APIs]
+ *     parameters:
+ *       - in: path
+ *         name: city
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: City name (e.g., São Paulo, Rio de Janeiro)
+ *     responses:
+ *       200:
+ *         description: Weather data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 name:
+ *                   type: string
+ *                   example: "São Paulo"
+ *                 main:
+ *                   type: object
+ *                   properties:
+ *                     temp:
+ *                       type: number
+ *                       example: 25.5
+ *                     humidity:
+ *                       type: number
+ *                       example: 65
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/weather/:city', async (req, res) => {
+	try {
+		const { city } = req.params;
+		const weather = await ExternalAPIService.getWeatherData(city);
+		if (weather) {
+			res.json(weather);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch weather data' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Weather API error', detail: String(error) });
+	}
+});
+
+// Webhook endpoints for external integrations
+/**
+ * @swagger
+ * /api/webhooks/bank-integration:
+ *   post:
+ *     summary: Bank integration webhook
+ *     description: Receives webhooks from bank integration services
+ *     tags: [Webhooks]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 example: "transaction.created"
+ *               data:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid webhook data
+ */
+app.post('/api/webhooks/bank-integration', express.raw({ type: 'application/json' }), async (req, res) => {
+	try {
+		const signature = req.headers['x-webhook-signature'];
+		
+		// Verify webhook signature (implement based on your bank's requirements)
+		if (!signature) {
+			return res.status(400).json({ error: 'Missing webhook signature' });
+		}
+		
+		const payload = JSON.parse(req.body);
+		console.log('Bank webhook received:', payload);
+		
+		// Process the webhook based on event type
+		switch (payload.event) {
+			case 'transaction.created':
+				// Handle new transaction
+				break;
+			case 'account.updated':
+				// Handle account update
+				break;
+			default:
+				console.log('Unknown webhook event:', payload.event);
+		}
+		
+		res.json({ received: true });
+	} catch (error) {
+		console.error('Webhook processing error:', error);
+		res.status(500).json({ error: 'Webhook processing failed' });
+	}
+});
+
+/**
+ * @swagger
+ * /api/webhooks/accounting:
+ *   post:
+ *     summary: Accounting software webhook
+ *     description: Receives webhooks from accounting software integrations
+ *     tags: [Webhooks]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 example: "invoice.paid"
+ *               data:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid webhook data
+ */
+app.post('/api/webhooks/accounting', express.raw({ type: 'application/json' }), async (req, res) => {
+	try {
+		const payload = JSON.parse(req.body);
+		console.log('Accounting webhook received:', payload);
+		
+		// Process accounting webhook
+		switch (payload.event) {
+			case 'invoice.paid':
+				// Handle invoice payment
+				break;
+			case 'expense.created':
+				// Handle new expense
+				break;
+			default:
+				console.log('Unknown accounting event:', payload.event);
+		}
+		
+		res.json({ received: true });
+	} catch (error) {
+		console.error('Accounting webhook error:', error);
+		res.status(500).json({ error: 'Webhook processing failed' });
+	}
+});
+
+/**
+ * @swagger
+ * /api/currency/rates:
+ *   get:
+ *     summary: Get currency exchange rates
+ *     description: Returns current exchange rates for BRL
+ *     tags: [External APIs]
+ *     responses:
+ *       200:
+ *         description: Currency rates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 base:
+ *                   type: string
+ *                   example: "BRL"
+ *                 rates:
+ *                   type: object
+ *                   example: {"USD": 0.21, "EUR": 0.19}
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/currency/rates', async (req, res) => {
+	try {
+		const rates = await ExternalAPIService.getCurrencyRates();
+		if (rates) {
+			res.json(rates);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch currency rates' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Currency API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/crypto/rates:
+ *   get:
+ *     summary: Get cryptocurrency rates
+ *     description: Returns current rates for Bitcoin and Ethereum
+ *     tags: [External APIs]
+ *     responses:
+ *       200:
+ *         description: Crypto rates retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 bitcoin:
+ *                   type: object
+ *                   properties:
+ *                     brl:
+ *                       type: number
+ *                       example: 250000
+ *                     usd:
+ *                       type: number
+ *                       example: 50000
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/crypto/rates', async (req, res) => {
+	try {
+		const rates = await ExternalAPIService.getCryptoRates();
+		if (rates) {
+			res.json(rates);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch crypto rates' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Crypto API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/stock/{symbol}:
+ *   get:
+ *     summary: Get stock price
+ *     description: Returns current stock price for a given symbol
+ *     tags: [External APIs]
+ *     parameters:
+ *       - in: path
+ *         name: symbol
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stock symbol (e.g., AAPL, GOOGL)
+ *     responses:
+ *       200:
+ *         description: Stock price retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 symbol:
+ *                   type: string
+ *                   example: "AAPL"
+ *                 price:
+ *                   type: string
+ *                   example: "150.25"
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/stock/:symbol', async (req, res) => {
+	try {
+		const { symbol } = req.params;
+		const price = await ExternalAPIService.getStockPrice(symbol);
+		if (price) {
+			res.json(price);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch stock price' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Stock API error', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/weather/{city}:
+ *   get:
+ *     summary: Get weather data
+ *     description: Returns current weather data for a given city
+ *     tags: [External APIs]
+ *     parameters:
+ *       - in: path
+ *         name: city
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: City name (e.g., São Paulo, Rio de Janeiro)
+ *     responses:
+ *       200:
+ *         description: Weather data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 name:
+ *                   type: string
+ *                   example: "São Paulo"
+ *                 main:
+ *                   type: object
+ *                   properties:
+ *                     temp:
+ *                       type: number
+ *                       example: 25.5
+ *                     humidity:
+ *                       type: number
+ *                       example: 65
+ *       500:
+ *         description: External API error
+ */
+app.get('/api/weather/:city', async (req, res) => {
+	try {
+		const { city } = req.params;
+		const weather = await ExternalAPIService.getWeatherData(city);
+		if (weather) {
+			res.json(weather);
+		} else {
+			res.status(500).json({ error: 'Failed to fetch weather data' });
+		}
+	} catch (error) {
+		res.status(500).json({ error: 'Weather API error', detail: String(error) });
+	}
+});
+
+// Webhook endpoints for external integrations
+/**
+ * @swagger
+ * /api/webhooks/bank-integration:
+ *   post:
+ *     summary: Bank integration webhook
+ *     description: Receives webhooks from bank integration services
+ *     tags: [Webhooks]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 example: "transaction.created"
+ *               data:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid webhook data
+ */
+app.post('/api/webhooks/bank-integration', express.raw({ type: 'application/json' }), async (req, res) => {
+	try {
+		const signature = req.headers['x-webhook-signature'];
+		
+		// Verify webhook signature (implement based on your bank's requirements)
+		if (!signature) {
+			return res.status(400).json({ error: 'Missing webhook signature' });
+		}
+		
+		const payload = JSON.parse(req.body);
+		console.log('Bank webhook received:', payload);
+		
+		// Process the webhook based on event type
+		switch (payload.event) {
+			case 'transaction.created':
+				// Handle new transaction
+				break;
+			case 'account.updated':
+				// Handle account update
+				break;
+			default:
+				console.log('Unknown webhook event:', payload.event);
+		}
+		
+		res.json({ received: true });
+	} catch (error) {
+		console.error('Webhook processing error:', error);
+		res.status(500).json({ error: 'Webhook processing failed' });
+	}
+});
+
+/**
+ * @swagger
+ * /api/webhooks/accounting:
+ *   post:
+ *     summary: Accounting software webhook
+ *     description: Receives webhooks from accounting software integrations
+ *     tags: [Webhooks]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 example: "invoice.paid"
+ *               data:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid webhook data
+ */
+app.post('/api/webhooks/accounting', express.raw({ type: 'application/json' }), async (req, res) => {
+	try {
+		const payload = JSON.parse(req.body);
+		console.log('Accounting webhook received:', payload);
+		
+		// Process accounting webhook
+		switch (payload.event) {
+			case 'invoice.paid':
+				// Handle invoice payment
+				break;
+			case 'expense.created':
+				// Handle new expense
+				break;
+			default:
+				console.log('Unknown accounting event:', payload.event);
+		}
+		
+		res.json({ received: true });
+	} catch (error) {
+		console.error('Accounting webhook error:', error);
+		res.status(500).json({ error: 'Webhook processing failed' });
+	}
+});
+
+// Enhanced API endpoints with validation
+/**
+ * @swagger
+ * /api/transactions:
+ *   get:
+ *     summary: Get user transactions
+ *     description: Returns paginated list of user transactions
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Items per page
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [INCOME, EXPENSE]
+ *         description: Filter by transaction type
+ *       - in: query
+ *         name: categoryId
+ *         schema:
+ *           type: string
+ *         description: Filter by category ID
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Start date filter
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: End date filter
+ *     responses:
+ *       200:
+ *         description: Transactions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 transactions:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Transaction'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                     pageSize:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+app.get('/api/transactions', authMiddleware, [
+	query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
+	query('pageSize').optional().isInt({ min: 1, max: 100 }).withMessage('Page size must be between 1 and 100'),
+	query('type').optional().isIn(['INCOME', 'EXPENSE']).withMessage('Type must be INCOME or EXPENSE'),
+	query('startDate').optional().isISO8601().withMessage('Start date must be a valid date'),
+	query('endDate').optional().isISO8601().withMessage('End date must be a valid date'),
+], async (req, res) => {
+	const errors = validationResult(req);
+	if (!errors.isEmpty()) {
+		return res.status(400).json({ errors: errors.array() });
+	}
+	
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const pageSize = parseInt(req.query.pageSize) || 20;
+		const skip = (page - 1) * pageSize;
+		
+		const where = { userId: req.user.userId };
+		
+		if (req.query.type) where.type = req.query.type;
+		if (req.query.categoryId) where.categoryId = req.query.categoryId;
+		if (req.query.startDate || req.query.endDate) {
+			where.date = {};
+			if (req.query.startDate) where.date.gte = new Date(req.query.startDate);
+			if (req.query.endDate) where.date.lte = new Date(req.query.endDate);
+		}
+		
+		const [transactions, total] = await Promise.all([
+			prisma.transaction.findMany({
+				where,
+				include: { category: true },
+				orderBy: { date: 'desc' },
+				skip,
+				take: pageSize,
+			}),
+			prisma.transaction.count({ where }),
+		]);
+		
+		res.json({
+			transactions,
+			pagination: {
+				page,
+				pageSize,
+				total,
+				totalPages: Math.ceil(total / pageSize),
+			},
+		});
+	} catch (error) {
+		res.status(500).json({ error: 'Failed to fetch transactions', detail: String(error) });
+	}
+});
+
+/**
+ * @swagger
+ * /api/transactions:
+ *   post:
+ *     summary: Create new transaction
+ *     description: Creates a new transaction for the authenticated user
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - type
+ *               - amount
+ *               - description
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [INCOME, EXPENSE]
+ *                 description: Transaction type
+ *               amount:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Transaction amount
+ *               description:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 255
+ *                 description: Transaction description
+ *               categoryId:
+ *                 type: string
+ *                 description: Category ID (optional)
+ *               date:
+ *                 type: string
+ *                 format: date
+ *                 description: Transaction date (defaults to today)
+ *     responses:
+ *       201:
+ *         description: Transaction created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Transaction'
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+app.post('/api/transactions', authMiddleware, [
+	body('type').isIn(['INCOME', 'EXPENSE']).withMessage('Type must be INCOME or EXPENSE'),
+	body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be a positive number'),
+	body('description').isLength({ min: 1, max: 255 }).withMessage('Description must be between 1 and 255 characters'),
+	body('categoryId').optional().isString().withMessage('Category ID must be a string'),
+	body('date').optional().isISO8601().withMessage('Date must be a valid date'),
+], async (req, res) => {
+	const errors = validationResult(req);
+	if (!errors.isEmpty()) {
+		return res.status(400).json({ errors: errors.array() });
+	}
+	
+	try {
+		const { type, amount, description, categoryId, date } = req.body;
+		
+		// Verify category belongs to user if provided
+		if (categoryId) {
+			const category = await prisma.category.findFirst({
+				where: { id: categoryId, userId: req.user.userId },
+			});
+			if (!category) {
+				return res.status(400).json({ error: 'Category not found or does not belong to user' });
+			}
+		}
+		
+		const transaction = await prisma.transaction.create({
+			data: {
+				userId: req.user.userId,
+				type,
+				amount,
+				description,
+				categoryId,
+				date: date ? new Date(date) : new Date(),
+			},
+			include: { category: true },
+		});
+		
+		res.status(201).json(transaction);
+	} catch (error) {
+		res.status(500).json({ error: 'Failed to create transaction', detail: String(error) });
+	}
 });
 
 app.get('/', (req, res) => {
