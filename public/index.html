@@ -112,6 +112,15 @@
 				<button id="btnSummary" class="btn">Consultar resumo</button>
 				<button id="btnExportCsv" class="btn" style="margin-left:8px">Exportar CSV</button>
 			</div>
+			<div class="kpis">
+				<div class="kpi"><h4>Receitas (período)</h4><div id="sumIncome" class="val">-</div></div>
+				<div class="kpi"><h4>Despesas (período)</h4><div id="sumExpense" class="val">-</div></div>
+				<div class="kpi"><h4>Saldo (período)</h4><div id="sumBalance" class="val">-</div></div>
+			</div>
+			<div class="card" style="margin:12px 0">
+				<h4 style="margin-top:0">Top categorias</h4>
+				<ul id="topCats" style="margin:0;padding-left:18px"></ul>
+			</div>
 			<pre id="out"></pre>
 		</div>
 	</div>
@@ -342,6 +351,29 @@
 			if(qs.length) q += '?' + qs.join('&');
 			const data = await apiGet(q);
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+			if(data && data.totals){
+				const inc = Number(data.totals.income||0);
+				const exp = Number(data.totals.expense||0);
+				const bal = Number(data.totals.balance||0);
+				const incEl = document.getElementById('sumIncome');
+				const expEl = document.getElementById('sumExpense');
+				const balEl = document.getElementById('sumBalance');
+				incEl.textContent = inc.toFixed(2);
+				expEl.textContent = exp.toFixed(2);
+				balEl.textContent = bal.toFixed(2);
+				incEl.className = 'val pos';
+				expEl.className = 'val neg';
+				balEl.className = 'val ' + (bal >= 0 ? 'pos' : 'neg');
+			}
+			if(data && Array.isArray(data.byCategory)){
+				const ul = document.getElementById('topCats');
+				ul.innerHTML = '';
+				for(const item of data.byCategory.slice(0,5)){
+					const li = document.createElement('li');
+					li.textContent = `${item.category}: ${Number(item.amount||0).toFixed(2)}`;
+					ul.appendChild(li);
+				}
+			}
 		});
 
 		document.getElementById('btnExportCsv').addEventListener('click', function(){
