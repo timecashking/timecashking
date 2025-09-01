@@ -117,6 +117,10 @@
 		async function refreshCategoriesIntoSelect(){
 			const cats = await apiGet('/categories');
 			const sel = document.getElementById('txCategory');
+			if (!Array.isArray(cats)) {
+				setOut(cats || { error: 'Categorias retornaram formato inesperado' });
+				return;
+			}
 			sel.innerHTML = '<option value="">(Sem categoria)</option>' + cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
 		}
 
@@ -145,6 +149,7 @@
 			try{
 				setOut('Carregando categorias...');
 				const data = await apiGet('/categories');
+				if (!Array.isArray(data)) { setOut(data); return; }
 				setOut(data);
 			} catch(e){ setOut(String(e)); }
 		});
