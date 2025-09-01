@@ -15,6 +15,21 @@ enum UserRole {
 	MANAGER
 }
 
+enum SubscriptionStatus {
+	ACTIVE
+	CANCELED
+	PAST_DUE
+	UNPAID
+	TRIAL
+}
+
+enum PaymentStatus {
+	PENDING
+	SUCCEEDED
+	FAILED
+	REFUNDED
+}
+
 model User {
 	id        String   @id @default(cuid())
 	googleId  String   @unique
@@ -27,6 +42,8 @@ model User {
 	// relations
 	categories   Category[]
 	transactions Transaction[]
+	subscription Subscription?
+	payments     Payment[]
 }
 
 enum TransactionType {
@@ -55,4 +72,38 @@ model Transaction {
 	description String?
 	date        DateTime         @default(now())
 	createdAt   DateTime         @default(now())
+}
+
+model Subscription {
+	id                String             @id @default(cuid())
+	userId            String             @unique
+	user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+	stripeCustomerId  String?            @unique
+	stripeSubscriptionId String?         @unique
+	planId            String
+	planName          String
+	planPrice         Decimal            @db.Decimal(10, 2)
+	status            SubscriptionStatus @default(TRIAL)
+	currentPeriodStart DateTime?
+	currentPeriodEnd   DateTime?
+	trialEnd          DateTime?
+	canceledAt        DateTime?
+	createdAt         DateTime           @default(now())
+	updatedAt         DateTime           @updatedAt
+}
+
+model Payment {
+	id                String        @id @default(cuid())
+	userId            String
+	user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+	subscriptionId    String?
+	subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
+	stripePaymentId   String?       @unique
+	stripeInvoiceId   String?       @unique
+	amount            Decimal       @db.Decimal(10, 2)
+	currency          String        @default("BRL")
+	status            PaymentStatus @default(PENDING)
+	description       String?
+	paidAt            DateTime?
+	createdAt         DateTime      @default(now())
 }

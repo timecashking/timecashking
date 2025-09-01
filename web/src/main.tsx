@@ -8,6 +8,7 @@ import { AuthCallback } from './pages/AuthCallback';
 import { Admin } from './pages/Admin';
 import { Manager } from './pages/Manager';
 import { Reports } from './pages/Reports';
+import { Subscription } from './pages/Subscription';
 
 const router = createBrowserRouter([
 	{
@@ -29,6 +30,18 @@ const router = createBrowserRouter([
 	{
 		path: '/reports',
 		element: <Reports />,
+	},
+	{
+		path: '/subscription',
+		element: <Subscription />,
+	},
+	{
+		path: '/subscription/success',
+		element: <Subscription />,
+	},
+	{
+		path: '/subscription/cancel',
+		element: <Subscription />,
 	},
 	{
 		path: '/auth/callback',

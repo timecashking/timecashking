@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import pkg from '@prisma/client';
 import puppeteer from 'puppeteer';
 import Handlebars from 'handlebars';
+import Stripe from 'stripe';
 const { PrismaClient } = pkg;
 
 const app = express();
@@ -42,6 +43,33 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 const prisma = new PrismaClient();
+
+// Stripe configuration
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+	apiVersion: '2023-10-16',
+});
+
+// Subscription plans
+const SUBSCRIPTION_PLANS = {
+	BASIC: {
+		id: 'price_basic',
+		name: 'Plano Básico',
+		price: 19.90,
+		features: ['Até 100 transações/mês', 'Relatórios básicos', 'Suporte por email']
+	},
+	PRO: {
+		id: 'price_pro', 
+		name: 'Plano Pro',
+		price: 39.90,
+		features: ['Transações ilimitadas', 'Relatórios avançados', 'Exportação PDF', 'Suporte prioritário']
+	},
+	ENTERPRISE: {
+		id: 'price_enterprise',
+		name: 'Plano Enterprise', 
+		price: 99.90,
+		features: ['Tudo do Pro', 'Múltiplos usuários', 'API personalizada', 'Suporte dedicado']
+	}
+};
 
 // PDF generation helpers
 const pdfTemplate = `
@@ -840,6 +868,234 @@ app.get('/reports/advanced', authMiddleware, async (req, res) => {
         });
     } catch (e) {
         return res.status(500).json({ error: 'Advanced report failed', detail: String(e) });
+    }
+});
+
+// Subscription and Payment endpoints
+app.get('/subscription/plans', authMiddleware, async (req, res) => {
+    try {
+        return res.json(Object.values(SUBSCRIPTION_PLANS));
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch plans', detail: String(e) });
+    }
+});
+
+app.get('/subscription/current', authMiddleware, async (req, res) => {
+    try {
+        const subscription = await prisma.subscription.findUnique({
+            where: { userId: req.user.userId },
+            include: { payments: { orderBy: { createdAt: 'desc' }, take: 5 } }
+        });
+        
+        if (!subscription) {
+            return res.json({ 
+                status: 'TRIAL',
+                plan: null,
+                trialEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days trial
+            });
+        }
+        
+        return res.json({
+            status: subscription.status,
+            plan: {
+                id: subscription.planId,
+                name: subscription.planName,
+                price: subscription.planPrice
+            },
+            currentPeriod: {
+                start: subscription.currentPeriodStart,
+                end: subscription.currentPeriodEnd
+            },
+            trialEnd: subscription.trialEnd,
+            canceledAt: subscription.canceledAt,
+            recentPayments: subscription.payments
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch subscription', detail: String(e) });
+    }
+});
+
+app.post('/subscription/create-checkout', authMiddleware, async (req, res) => {
+    try {
+        const { planId } = req.body;
+        const plan = Object.values(SUBSCRIPTION_PLANS).find(p => p.id === planId);
+        
+        if (!plan) {
+            return badRequest(res, 'Invalid plan ID');
+        }
+        
+        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+        
+        // Create or get Stripe customer
+        let customer;
+        const existingSubscription = await prisma.subscription.findUnique({
+            where: { userId: req.user.userId }
+        });
+        
+        if (existingSubscription?.stripeCustomerId) {
+            customer = await stripe.customers.retrieve(existingSubscription.stripeCustomerId);
+        } else {
+            customer = await stripe.customers.create({
+                email: user.email,
+                name: user.name,
+                metadata: { userId: req.user.userId }
+            });
+        }
+        
+        // Create checkout session
+        const session = await stripe.checkout.sessions.create({
+            customer: customer.id,
+            payment_method_types: ['card'],
+            line_items: [{
+                price: planId,
+                quantity: 1,
+            }],
+            mode: 'subscription',
+            success_url: `${process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL}/subscription/cancel`,
+            metadata: {
+                userId: req.user.userId,
+                planId: planId
+            }
+        });
+        
+        return res.json({ sessionId: session.id, url: session.url });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to create checkout session', detail: String(e) });
+    }
+});
+
+app.post('/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    
+    let event;
+    
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err) {
+        return res.status(400).json({ error: 'Webhook signature verification failed' });
+    }
+    
+    try {
+        switch (event.type) {
+            case 'customer.subscription.created':
+            case 'customer.subscription.updated':
+                const subscription = event.data.object;
+                const userId = subscription.metadata?.userId;
+                
+                if (userId) {
+                    await prisma.subscription.upsert({
+                        where: { userId },
+                        update: {
+                            stripeSubscriptionId: subscription.id,
+                            stripeCustomerId: subscription.customer,
+                            planId: subscription.items.data[0].price.id,
+                            planName: SUBSCRIPTION_PLANS[subscription.items.data[0].price.id]?.name || 'Unknown',
+                            planPrice: subscription.items.data[0].price.unit_amount / 100,
+                            status: subscription.status.toUpperCase(),
+                            currentPeriodStart: new Date(subscription.current_period_start * 1000),
+                            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+                            trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+                            canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+                        },
+                        create: {
+                            userId,
+                            stripeSubscriptionId: subscription.id,
+                            stripeCustomerId: subscription.customer,
+                            planId: subscription.items.data[0].price.id,
+                            planName: SUBSCRIPTION_PLANS[subscription.items.data[0].price.id]?.name || 'Unknown',
+                            planPrice: subscription.items.data[0].price.unit_amount / 100,
+                            status: subscription.status.toUpperCase(),
+                            currentPeriodStart: new Date(subscription.current_period_start * 1000),
+                            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+                            trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+                            canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+                        }
+                    });
+                }
+                break;
+                
+            case 'invoice.payment_succeeded':
+                const invoice = event.data.object;
+                const paymentUserId = invoice.metadata?.userId;
+                
+                if (paymentUserId) {
+                    await prisma.payment.create({
+                        data: {
+                            userId: paymentUserId,
+                            stripePaymentId: invoice.payment_intent,
+                            stripeInvoiceId: invoice.id,
+                            amount: invoice.amount_paid / 100,
+                            currency: invoice.currency.toUpperCase(),
+                            status: 'SUCCEEDED',
+                            description: `Pagamento da assinatura - ${invoice.subscription ? 'Recorrente' : 'Único'}`,
+                            paidAt: new Date(),
+                        }
+                    });
+                }
+                break;
+                
+            case 'customer.subscription.deleted':
+                const deletedSubscription = event.data.object;
+                const deletedUserId = deletedSubscription.metadata?.userId;
+                
+                if (deletedUserId) {
+                    await prisma.subscription.update({
+                        where: { userId: deletedUserId },
+                        data: {
+                            status: 'CANCELED',
+                            canceledAt: new Date(),
+                        }
+                    });
+                }
+                break;
+        }
+        
+        return res.json({ received: true });
+    } catch (e) {
+        console.error('Webhook error:', e);
+        return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+});
+
+app.post('/subscription/cancel', authMiddleware, async (req, res) => {
+    try {
+        const subscription = await prisma.subscription.findUnique({
+            where: { userId: req.user.userId }
+        });
+        
+        if (!subscription?.stripeSubscriptionId) {
+            return res.status(404).json({ error: 'No active subscription found' });
+        }
+        
+        // Cancel at period end
+        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+            cancel_at_period_end: true
+        });
+        
+        await prisma.subscription.update({
+            where: { userId: req.user.userId },
+            data: { canceledAt: new Date() }
+        });
+        
+        return res.json({ message: 'Subscription will be canceled at the end of the current period' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to cancel subscription', detail: String(e) });
+    }
+});
+
+app.get('/subscription/payments', authMiddleware, async (req, res) => {
+    try {
+        const payments = await prisma.payment.findMany({
+            where: { userId: req.user.userId },
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        });
+        
+        return res.json(payments);
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to fetch payments', detail: String(e) });
     }
 });
 
