@@ -1,6 +1,6 @@
 [build]
-	publish = "public"
-	command = ""
+	publish = "web/dist"
+	command = "npm ci && npm run --prefix web build"
 
 [build.environment]
-	NEXT_PUBLIC_API_URL = "https://timecashking-api.onrender.com"
+	VITE_API_URL = "https://timecashking-api.onrender.com"
