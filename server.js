@@ -258,8 +258,22 @@ app.post('/transactions', authMiddleware, async (req, res) => {
 app.get('/transactions', authMiddleware, async (req, res) => {
 	try {
 		const paginate = String(req.query.paginate || '').toLowerCase() === 'true';
+		const where = { userId: req.user.userId };
+		// optional filters
+		if (req.query.start || req.query.end) {
+			where.date = {};
+			if (req.query.start) where.date.gte = new Date(String(req.query.start));
+			if (req.query.end) where.date.lte = new Date(String(req.query.end));
+		}
+		if (req.query.type) {
+			const t = String(req.query.type).toUpperCase();
+			if (t === 'INCOME' || t === 'EXPENSE') where.type = t;
+		}
+		if (req.query.categoryId) {
+			where.categoryId = String(req.query.categoryId);
+		}
 		const baseQuery = {
-			where: { userId: req.user.userId },
+			where,
 			orderBy: { date: 'desc' },
 			include: { category: true },
 		};

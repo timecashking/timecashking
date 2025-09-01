@@ -66,6 +66,22 @@
 						<button id="btnTxList" class="btn">Listar transações</button>
 					</div>
 					<div style="margin-top:8px">
+						<label class="small">Filtros</label>
+						<div style="display:flex;gap:8px;flex-wrap:wrap">
+							<input id="fltStart" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+							<input id="fltEnd" type="date" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+							<select id="fltType" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2">
+								<option value="">(Tipo)</option>
+								<option value="INCOME">Receita</option>
+								<option value="EXPENSE">Despesa</option>
+							</select>
+							<select id="fltCategory" style="padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2">
+								<option value="">(Categoria)</option>
+							</select>
+							<button id="btnTxFilter" class="btn">Filtrar</button>
+						</div>
+					</div>
+					<div style="margin-top:8px">
 						<input id="txIdEdit" placeholder="ID da transação" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
 						<input id="txAmountEdit" type="number" step="0.01" placeholder="Novo valor (opcional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:6px"/>
 						<input id="txDescEdit" placeholder="Nova descrição (opcional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:6px"/>
@@ -140,6 +156,9 @@
 				return;
 			}
 			sel.innerHTML = '<option value="">(Sem categoria)</option>' + cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+			// filtros
+			const fltSel = document.getElementById('fltCategory');
+			fltSel.innerHTML = '<option value="">(Categoria)</option>' + cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
 		}
 
 		document.getElementById('btnMe').addEventListener('click', async function(){
@@ -222,6 +241,25 @@
 			try{
 				setOut('Carregando transações...');
 				const data = await apiGet('/transactions');
+				setOut(data);
+			} catch(e){ setOut(String(e)); }
+		});
+
+		document.getElementById('btnTxFilter').addEventListener('click', async function(){
+			try{
+				const s = document.getElementById('fltStart').value;
+				const e = document.getElementById('fltEnd').value;
+				const t = document.getElementById('fltType').value;
+				const c = document.getElementById('fltCategory').value;
+				let q = '/transactions?';
+				const qs = [];
+				if(s) qs.push('start='+encodeURIComponent(s));
+				if(e) qs.push('end='+encodeURIComponent(e));
+				if(t) qs.push('type='+encodeURIComponent(t));
+				if(c) qs.push('categoryId='+encodeURIComponent(c));
+				q += qs.join('&');
+				setOut('Filtrando...');
+				const data = await apiGet(q);
 				setOut(data);
 			} catch(e){ setOut(String(e)); }
 		});
