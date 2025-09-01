@@ -5,6 +5,8 @@ import { OAuth2Client } from 'google-auth-library';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import pkg from '@prisma/client';
+import puppeteer from 'puppeteer';
+import Handlebars from 'handlebars';
 const { PrismaClient } = pkg;
 
 const app = express();
@@ -40,6 +42,119 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 const prisma = new PrismaClient();
+
+// PDF generation helpers
+const pdfTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{title}}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .summary { display: flex; justify-content: space-between; margin: 20px 0; }
+        .card { background: #f5f5f5; padding: 15px; border-radius: 8px; text-align: center; }
+        .card.income { background: #d4edda; color: #155724; }
+        .card.expense { background: #f8d7da; color: #721c24; }
+        .card.balance { background: #d1ecf1; color: #0c5460; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{title}}</h1>
+        <p>Período: {{period.start}} a {{period.end}}</p>
+        <p>Gerado em: {{generatedAt}}</p>
+    </div>
+    
+    <div class="summary">
+        <div class="card income">
+            <h3>Receitas</h3>
+            <h2>R$ {{totals.income}}</h2>
+        </div>
+        <div class="card expense">
+            <h3>Despesas</h3>
+            <h2>R$ {{totals.expense}}</h2>
+        </div>
+        <div class="card balance">
+            <h3>Saldo</h3>
+            <h2>R$ {{totals.balance}}</h2>
+        </div>
+    </div>
+    
+    <h3>Transações</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Tipo</th>
+                <th>Categoria</th>
+                <th>Descrição</th>
+                <th>Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each transactions}}
+            <tr>
+                <td>{{date}}</td>
+                <td>{{type}}</td>
+                <td>{{category}}</td>
+                <td>{{description}}</td>
+                <td>R$ {{amount}}</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    
+    <h3>Resumo por Categoria</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Categoria</th>
+                <th>Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each byCategory}}
+            <tr>
+                <td>{{category}}</td>
+                <td>R$ {{amount}}</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    
+    <div class="footer">
+        <p>TimeCash King - Relatório Financeiro</p>
+    </div>
+</body>
+</html>
+`;
+
+async function generatePDF(data) {
+	const browser = await puppeteer.launch({ 
+		headless: 'new',
+		args: ['--no-sandbox', '--disable-setuid-sandbox']
+	});
+	const page = await browser.newPage();
+	
+	const template = Handlebars.compile(pdfTemplate);
+	const html = template(data);
+	
+	await page.setContent(html);
+	const pdf = await page.pdf({ 
+		format: 'A4',
+		printBackground: true,
+		margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
+	});
+	
+	await browser.close();
+	return pdf;
+}
 
 // Request log middleware (structured JSON)
 app.use((req, res, next) => {
@@ -594,6 +709,137 @@ app.get('/summary', authMiddleware, async (req, res) => {
         });
     } catch (e) {
         return res.status(500).json({ error: 'Summary failed', detail: String(e) });
+    }
+});
+
+// PDF Report generation
+app.get('/reports/pdf', authMiddleware, async (req, res) => {
+    try {
+        const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
+        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
+
+        const [income, expense, byCategory, transactions] = await Promise.all([
+            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
+            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
+            prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
+            prisma.transaction.findMany({ 
+                where, 
+                include: { category: true },
+                orderBy: { date: 'desc' }
+            }),
+        ]);
+
+        const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
+        const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
+        const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
+
+        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+        
+        const pdfData = {
+            title: `Relatório Financeiro - ${user.name}`,
+            period: {
+                start: start.toLocaleDateString('pt-BR'),
+                end: end.toLocaleDateString('pt-BR')
+            },
+            generatedAt: new Date().toLocaleString('pt-BR'),
+            totals: {
+                income: Number(income._sum.amount || 0).toFixed(2),
+                expense: Number(expense._sum.amount || 0).toFixed(2),
+                balance: (Number(income._sum.amount || 0) - Number(expense._sum.amount || 0)).toFixed(2)
+            },
+            transactions: transactions.map(t => ({
+                date: t.date.toLocaleDateString('pt-BR'),
+                type: t.type === 'INCOME' ? 'Receita' : 'Despesa',
+                category: t.category ? t.category.name : '(Sem categoria)',
+                description: t.description || '',
+                amount: Number(t.amount).toFixed(2)
+            })),
+            byCategory: byCategory.map(b => ({
+                category: idToName[b.categoryId] || '(Sem categoria)',
+                amount: Number(b._sum.amount || 0).toFixed(2)
+            }))
+        };
+
+        const pdf = await generatePDF(pdfData);
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="relatorio-financeiro.pdf"');
+        return res.send(pdf);
+    } catch (e) {
+        return res.status(500).json({ error: 'PDF generation failed', detail: String(e) });
+    }
+});
+
+// Advanced reports with charts data
+app.get('/reports/advanced', authMiddleware, async (req, res) => {
+    try {
+        const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
+        const groupBy = req.query.groupBy || 'month'; // month, week, day, category
+        
+        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
+        
+        let chartData;
+        
+        if (groupBy === 'category') {
+            const byCategory = await prisma.transaction.groupBy({
+                by: ['categoryId', 'type'],
+                _sum: { amount: true },
+                where,
+                orderBy: { _sum: { amount: 'desc' } }
+            });
+            
+            const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
+            const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
+            const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
+            
+            chartData = byCategory.map(b => ({
+                label: idToName[b.categoryId] || '(Sem categoria)',
+                type: b.type,
+                value: Number(b._sum.amount || 0)
+            }));
+        } else {
+            // Group by time period
+            const byPeriod = await prisma.transaction.groupBy({
+                by: ['type'],
+                _sum: { amount: true },
+                where,
+                orderBy: { _sum: { amount: 'desc' } }
+            });
+            
+            chartData = byPeriod.map(b => ({
+                label: b.type === 'INCOME' ? 'Receitas' : 'Despesas',
+                type: b.type,
+                value: Number(b._sum.amount || 0)
+            }));
+        }
+        
+        // Monthly trend data
+        const monthlyTrend = await prisma.transaction.groupBy({
+            by: ['type'],
+            _sum: { amount: true },
+            where,
+            orderBy: { _sum: { amount: 'desc' } }
+        });
+        
+        const trendData = monthlyTrend.map(b => ({
+            label: b.type === 'INCOME' ? 'Receitas' : 'Despesas',
+            value: Number(b._sum.amount || 0)
+        }));
+        
+        return res.json({
+            period: { start, end },
+            groupBy,
+            chartData,
+            trendData,
+            summary: {
+                totalIncome: Number(monthlyTrend.find(b => b.type === 'INCOME')?._sum.amount || 0),
+                totalExpense: Number(monthlyTrend.find(b => b.type === 'EXPENSE')?._sum.amount || 0)
+            }
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Advanced report failed', detail: String(e) });
     }
 });
 

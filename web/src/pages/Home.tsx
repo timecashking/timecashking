@@ -20,6 +20,7 @@ export function Home() {
 				<Link to="/categories">Categorias</Link>
 				<Link to="/transactions">Transações</Link>
 				<Link to="/summary">Resumo</Link>
+				<Link to="/reports">Relatórios</Link>
 				{me?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}
 				{(me?.role === 'ADMIN' || me?.role === 'MANAGER') && <Link to="/manager">Manager</Link>}
 			</nav>

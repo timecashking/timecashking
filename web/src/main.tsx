@@ -7,6 +7,7 @@ import { Summary } from './pages/Summary';
 import { AuthCallback } from './pages/AuthCallback';
 import { Admin } from './pages/Admin';
 import { Manager } from './pages/Manager';
+import { Reports } from './pages/Reports';
 
 const router = createBrowserRouter([
 	{
@@ -24,6 +25,10 @@ const router = createBrowserRouter([
 	{
 		path: '/summary',
 		element: <Summary />,
+	},
+	{
+		path: '/reports',
+		element: <Reports />,
 	},
 	{
 		path: '/auth/callback',
