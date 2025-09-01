@@ -9,12 +9,19 @@ generator client {
 	provider = "prisma-client-js"
 }
 
+enum UserRole {
+	USER
+	ADMIN
+	MANAGER
+}
+
 model User {
 	id        String   @id @default(cuid())
 	googleId  String   @unique
 	email     String   @unique
 	name      String?
 	avatarUrl String?
+	role      UserRole @default(USER)
 	createdAt DateTime @default(now())
 
 	// relations

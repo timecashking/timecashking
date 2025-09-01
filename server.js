@@ -135,6 +135,18 @@ function authMiddleware(req, res, next) {
 	}
 }
 
+// Role-based authorization middleware
+function requireRole(allowedRoles) {
+	return (req, res, next) => {
+		if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+		const userRole = req.user.role || 'USER';
+		if (!allowedRoles.includes(userRole)) {
+			return res.status(403).json({ error: 'Insufficient permissions' });
+		}
+		next();
+	};
+}
+
 app.get('/health', (req, res) => {
 	res.status(200).send('ok');
 });
@@ -184,7 +196,12 @@ app.get('/integrations/google/callback', async (req, res) => {
 			create: { googleId, email, name, avatarUrl },
 		});
 
-		const appToken = signJwt({ userId: user.id, email: user.email, name: user.name });
+		const appToken = signJwt({ 
+			userId: user.id, 
+			email: user.email, 
+			name: user.name,
+			role: user.role 
+		});
 
 		// Set HttpOnly cookie (cross-site)
 		res.cookie('tck_jwt', appToken, {
@@ -205,7 +222,13 @@ app.get('/integrations/google/callback', async (req, res) => {
 
 		return res.json({
 			ok: true,
-			user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+			user: { 
+				id: user.id, 
+				email: user.email, 
+				name: user.name, 
+				avatarUrl: user.avatarUrl,
+				role: user.role 
+			},
 			jwt: appToken,
 		});
 	} catch (err) {
@@ -216,7 +239,109 @@ app.get('/integrations/google/callback', async (req, res) => {
 app.get('/me', authMiddleware, async (req, res) => {
 	const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
 	if (!user) return res.status(404).json({ error: 'Not found' });
-	return res.json({ id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl });
+	return res.json({ 
+		id: user.id, 
+		email: user.email, 
+		name: user.name, 
+		avatarUrl: user.avatarUrl,
+		role: user.role 
+	});
+});
+
+// Admin-only endpoints for user management
+app.get('/admin/users', authMiddleware, requireRole(['ADMIN']), async (req, res) => {
+	try {
+		const users = await prisma.user.findMany({
+			select: {
+				id: true,
+				email: true,
+				name: true,
+				avatarUrl: true,
+				role: true,
+				createdAt: true,
+				_count: {
+					select: {
+						categories: true,
+						transactions: true,
+					},
+				},
+			},
+			orderBy: { createdAt: 'desc' },
+		});
+		return res.json(users);
+	} catch (e) {
+		return res.status(500).json({ error: 'Failed to fetch users', detail: String(e) });
+	}
+});
+
+app.patch('/admin/users/:id/role', authMiddleware, requireRole(['ADMIN']), async (req, res) => {
+	try {
+		const userId = String(req.params.id);
+		const role = String(req.body.role || req.query.role).toUpperCase();
+		
+		if (!['USER', 'ADMIN', 'MANAGER'].includes(role)) {
+			return badRequest(res, 'role must be USER, ADMIN, or MANAGER');
+		}
+		
+		const user = await prisma.user.findUnique({ where: { id: userId } });
+		if (!user) return res.status(404).json({ error: 'User not found' });
+		
+		const updated = await prisma.user.update({
+			where: { id: userId },
+			data: { role },
+		});
+		
+		return res.json({
+			id: updated.id,
+			email: updated.email,
+			name: updated.name,
+			role: updated.role,
+		});
+	} catch (e) {
+		return res.status(500).json({ error: 'Failed to update user role', detail: String(e) });
+	}
+});
+
+// Manager endpoints for viewing other users' data
+app.get('/manager/users/:id/summary', authMiddleware, requireRole(['ADMIN', 'MANAGER']), async (req, res) => {
+	try {
+		const targetUserId = String(req.params.id);
+		const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+		const end = req.query.end ? new Date(String(req.query.end)) : new Date();
+		
+		// Verify target user exists
+		const targetUser = await prisma.user.findUnique({ where: { id: targetUserId } });
+		if (!targetUser) return res.status(404).json({ error: 'User not found' });
+		
+		const where = { userId: targetUserId, date: { gte: start, lte: end } };
+		
+		const [income, expense, byCategory] = await Promise.all([
+			prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
+			prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
+			prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
+		]);
+		
+		const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
+		const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
+		const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
+		
+		return res.json({
+			user: { id: targetUser.id, email: targetUser.email, name: targetUser.name },
+			period: { start, end },
+			totals: {
+				income: Number(income._sum.amount || 0),
+				expense: Number(expense._sum.amount || 0),
+				balance: Number(income._sum.amount || 0) - Number(expense._sum.amount || 0),
+			},
+			byCategory: byCategory.map(b => ({ 
+				categoryId: b.categoryId, 
+				category: idToName[b.categoryId] || '(Sem categoria)', 
+				amount: Number(b._sum.amount || 0) 
+			})),
+		});
+	} catch (e) {
+		return res.status(500).json({ error: 'Manager summary failed', detail: String(e) });
+	}
 });
 
 // Logout: clear cookie
