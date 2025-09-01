@@ -12,6 +12,10 @@
 		code{background:#0e1627;padding:2px 6px;border-radius:6px}
 		.small{font-size:.9rem;color:#a8b3cf}
 		pre{white-space:pre-wrap;word-break:break-word;background:#0e1627;padding:12px;border-radius:8px}
+		.kpis{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+		.kpi{flex:1;min-width:180px;background:#0e1627;border:1px solid #23314f;border-radius:10px;padding:12px}
+		.kpi h4{margin:0 0 6px 0;font-size:14px;color:#a8b3cf;font-weight:500}
+		.kpi .val{font-size:20px;font-weight:700}
 	</style>
 </head>
 <body>
@@ -33,6 +37,11 @@
 			</p>
 			<hr/>
 			<h3>Financeiro (teste rápido)</h3>
+			<div class="kpis">
+				<div class="kpi"><h4>Receitas</h4><div id="kpiIncome" class="val">-</div></div>
+				<div class="kpi"><h4>Despesas</h4><div id="kpiExpense" class="val">-</div></div>
+				<div class="kpi"><h4>Saldo</h4><div id="kpiBalance" class="val">-</div></div>
+			</div>
 			<div style="display:flex;gap:16px;flex-wrap:wrap">
 				<div style="flex:1;min-width:280px">
 					<h4>Categoria</h4>
@@ -136,6 +145,18 @@
 				headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
 			});
 			return res.json().catch(()=>({ error: 'empty_response', status: res.status }));
+		}
+
+		function updateKpisFromTransactions(items){
+			if(!Array.isArray(items)) return;
+			let income=0, expense=0;
+			for(const t of items){
+				const v = Number(t.amount||0);
+				if(String(t.type).toUpperCase()==='INCOME') income += v; else expense += v;
+			}
+			document.getElementById('kpiIncome').textContent = income.toFixed(2);
+			document.getElementById('kpiExpense').textContent = expense.toFixed(2);
+			document.getElementById('kpiBalance').textContent = (income - expense).toFixed(2);
 		}
 		async function apiPost(path, body){
 			const token = localStorage.getItem('tck_jwt') || '';
@@ -242,6 +263,7 @@
 				setOut('Carregando transações...');
 				const data = await apiGet('/transactions');
 				setOut(data);
+				updateKpisFromTransactions(data);
 			} catch(e){ setOut(String(e)); }
 		});
 
@@ -261,6 +283,7 @@
 				setOut('Filtrando...');
 				const data = await apiGet(q);
 				setOut(data);
+				updateKpisFromTransactions(data);
 			} catch(e){ setOut(String(e)); }
 		});
 
