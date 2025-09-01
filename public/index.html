@@ -252,6 +252,7 @@
 			try{
 				const id = document.getElementById('catIdEdit').value.trim();
 				if(!id){ alert('Informe o ID da categoria'); return; }
+				if(!confirm('Confirmar exclusão da categoria?')) return;
 				setOut('Excluindo categoria...');
 				const token = localStorage.getItem('tck_jwt') || '';
 				const res = await fetch(api.replace(/\/$/,'') + '/categories/' + encodeURIComponent(id), {
@@ -330,6 +331,7 @@
 			try{
 				const id = document.getElementById('txIdEdit').value.trim();
 				if(!id){ alert('Informe o ID da transação'); return; }
+				if(!confirm('Confirmar exclusão da transação?')) return;
 				setOut('Excluindo transação...');
 				const token = localStorage.getItem('tck_jwt') || '';
 				const res = await fetch(api.replace(/\/$/,'') + '/transactions/' + encodeURIComponent(id), {
