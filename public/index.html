@@ -33,14 +33,32 @@
 			</p>
 			<hr/>
 			<h3>Financeiro (teste rápido)</h3>
-			<p>
-				<button id="btnCatNew" class="btn">Criar categoria exemplo</button>
-				<button id="btnCatList" class="btn">Listar categorias</button>
-			</p>
-			<p>
-				<button id="btnTxNew" class="btn">Criar transação exemplo</button>
-				<button id="btnTxList" class="btn">Listar transações</button>
-			</p>
+			<div style="display:flex;gap:16px;flex-wrap:wrap">
+				<div style="flex:1;min-width:280px">
+					<h4>Categoria</h4>
+					<input id="catName" placeholder="Nome da categoria" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2"/>
+					<div>
+						<button id="btnCatCreate" class="btn">Criar categoria</button>
+						<button id="btnCatList" class="btn">Listar categorias</button>
+					</div>
+				</div>
+				<div style="flex:1;min-width:280px">
+					<h4>Transação</h4>
+					<select id="txType" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2">
+						<option value="INCOME">Receita</option>
+						<option value="EXPENSE">Despesa</option>
+					</select>
+					<input id="txAmount" type="number" step="0.01" placeholder="Valor (ex: 150.00)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:8px"/>
+					<select id="txCategory" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:8px">
+						<option value="">(Sem categoria)</option>
+					</select>
+					<input id="txDesc" placeholder="Descrição (opcional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #23314f;background:#0e1627;color:#e6eaf2;margin-top:8px"/>
+					<div>
+						<button id="btnTxCreate" class="btn">Criar transação</button>
+						<button id="btnTxList" class="btn">Listar transações</button>
+					</div>
+				</div>
+			</div>
 			<pre id="out"></pre>
 		</div>
 	</div>
@@ -74,6 +92,12 @@
 			return res.json();
 		}
 
+		async function refreshCategoriesIntoSelect(){
+			const cats = await apiGet('/categories');
+			const sel = document.getElementById('txCategory');
+			sel.innerHTML = '<option value="">(Sem categoria)</option>' + cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+		}
+
 		document.getElementById('btnMe').addEventListener('click', async function(){
 			const data = await apiGet('/me');
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
@@ -85,26 +109,37 @@
 			location.reload();
 		});
 
-		document.getElementById('btnCatNew').addEventListener('click', async function(){
-			const name = 'Categoria ' + Math.floor(Math.random()*1000);
+		document.getElementById('btnCatCreate').addEventListener('click', async function(){
+			const name = document.getElementById('catName').value.trim();
+			if(!name){ alert('Informe o nome da categoria'); return; }
 			const data = await apiPost('/categories?name='+encodeURIComponent(name));
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+			await refreshCategoriesIntoSelect();
 		});
 		document.getElementById('btnCatList').addEventListener('click', async function(){
 			const data = await apiGet('/categories');
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
 
-		document.getElementById('btnTxNew').addEventListener('click', async function(){
-			const amount = (Math.random()*100).toFixed(2);
-			const type = Math.random()>0.5 ? 'INCOME' : 'EXPENSE';
-			const data = await apiPost('/transactions?type='+type+'&amount='+amount);
+		document.getElementById('btnTxCreate').addEventListener('click', async function(){
+			const type = document.getElementById('txType').value;
+			const amount = document.getElementById('txAmount').value;
+			const categoryId = document.getElementById('txCategory').value;
+			const description = document.getElementById('txDesc').value;
+			if(!amount){ alert('Informe o valor'); return; }
+			let q = '/transactions?type='+encodeURIComponent(type)+'&amount='+encodeURIComponent(amount);
+			if(categoryId) q += '&categoryId='+encodeURIComponent(categoryId);
+			if(description) q += '&description='+encodeURIComponent(description);
+			const data = await apiPost(q);
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
 		document.getElementById('btnTxList').addEventListener('click', async function(){
 			const data = await apiGet('/transactions');
 			document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 		});
+
+		// Carregar categorias ao abrir a página
+		refreshCategoriesIntoSelect().catch(()=>{});
 	})();
 	</script>
 </body>
