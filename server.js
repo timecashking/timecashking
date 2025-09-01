@@ -10,7 +10,7 @@ const port = process.env.PORT || 3000;
 
 // CORS for Netlify site
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
-app.use(cors({ origin: allowedOrigin, credentials: false }));
+app.use(cors({ origin: allowedOrigin, credentials: true }));
 
 const prisma = new PrismaClient();
 
@@ -31,10 +31,24 @@ function signJwt(payload) {
 	return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
 }
 
+function getTokenFromRequest(req) {
+	// 1) Authorization header
+	const auth = req.headers.authorization || '';
+	if (auth.startsWith('Bearer ')) return auth.substring(7);
+	// 2) Cookie
+	const cookieHeader = req.headers.cookie || '';
+	const cookieMap = Object.fromEntries(
+		cookieHeader.split(';').map(v => v.trim()).filter(Boolean).map(v => {
+			const idx = v.indexOf('=');
+			return idx >= 0 ? [v.slice(0, idx), decodeURIComponent(v.slice(idx + 1))] : [v, ''];
+		})
+	);
+	return cookieMap['tck_jwt'];
+}
+
 function authMiddleware(req, res, next) {
-	const auth = req.headers.authorization;
-	if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
-	const token = auth.substring(7);
+	const token = getTokenFromRequest(req);
+	if (!token) return res.status(401).json({ error: 'Unauthorized' });
 	try {
 		const decoded = jwt.verify(token, jwtSecret);
 		req.user = decoded;
@@ -95,7 +109,16 @@ app.get('/integrations/google/callback', async (req, res) => {
 
 		const appToken = signJwt({ userId: user.id, email: user.email, name: user.name });
 
-		// Optional redirect back to frontend with token
+		// Set HttpOnly cookie (cross-site)
+		res.cookie('tck_jwt', appToken, {
+			httpOnly: true,
+			secure: true,
+			sameSite: 'none',
+			path: '/',
+			maxAge: 7 * 24 * 60 * 60 * 1000,
+		});
+
+		// Optional redirect back to frontend with token (for legacy flow)
 		const frontendUrl = process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL;
 		if (frontendUrl) {
 			const redirectTo = new URL(frontendUrl.replace(/\/$/, '') + '/auth/callback');
@@ -117,6 +140,18 @@ app.get('/me', authMiddleware, async (req, res) => {
 	const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
 	if (!user) return res.status(404).json({ error: 'Not found' });
 	return res.json({ id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl });
+});
+
+// Logout: clear cookie
+app.post('/auth/logout', (req, res) => {
+	res.cookie('tck_jwt', '', {
+		httpOnly: true,
+		secure: true,
+		sameSite: 'none',
+		path: '/',
+		maxAge: 0,
+	});
+	return res.json({ ok: true });
 });
 
 app.listen(port, () => {

@@ -52,13 +52,14 @@
 		}
 		var stored = localStorage.getItem('tck_jwt') || '';
 		if(stored){
-			document.getElementById('out').textContent = 'Token presente. Clique em \\u201cChamar /me\\u201d para ver seus dados.';
+			document.getElementById('out').textContent = 'Token presente. Clique em “Chamar /me” para ver seus dados.';
 		}
 
 		document.getElementById('btnMe').addEventListener('click', async function(){
 			try {
 				const res = await fetch(api.replace(/\/$/,'') + '/me', {
-					headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('tck_jwt')||'') }
+					headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('tck_jwt')||'') },
+					credentials: 'include'
 				});
 				const data = await res.json();
 				document.getElementById('out').textContent = JSON.stringify(data, null, 2);
@@ -67,7 +68,10 @@
 			}
 		});
 
-		document.getElementById('btnLogout').addEventListener('click', function(){
+		document.getElementById('btnLogout').addEventListener('click', async function(){
+			try{
+				await fetch(api.replace(/\/$/,'') + '/auth/logout', { method: 'POST', credentials: 'include' });
+			}catch(e){}
 			localStorage.removeItem('tck_jwt');
 			location.reload();
 		});
