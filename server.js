@@ -15,26 +15,49 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 
 // CORS for Netlify site (handle preflight explicitly) + allow local dev
 const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
+const envOrigins = (process.env.ALLOWED_ORIGINS || '')
+	.split(',')
+	.map(s => s.trim())
+	.filter(Boolean);
 const extraOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://127.0.0.1:5500',
+	'http://localhost:3000',
+	'http://localhost:5173',
+	'http://127.0.0.1:5500',
+	...envOrigins,
 ];
 const corsOptions = {
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true); // non-browser / curl
-        const isNetlify = /https?:\/\/([a-z0-9-]+)\.netlify\.app$/i.test(origin);
-        if (origin === allowedOrigin || extraOrigins.includes(origin) || isNetlify) return callback(null, true);
-        return callback(new Error('Not allowed by CORS: ' + origin));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+	origin: (origin, callback) => {
+		if (!origin) return callback(null, true); // non-browser / curl
+		const isNetlify = /https?:\/\/([a-z0-9-]+)\.netlify\.app$/i.test(origin);
+		if (origin === allowedOrigin || extraOrigins.includes(origin) || isNetlify) return callback(null, true);
+		return callback(new Error('Not allowed by CORS: ' + origin));
+	},
+	credentials: true,
+	methods: ['GET', 'POST', 'OPTIONS'],
+	allowedHeaders: ['Content-Type', 'Authorization'],
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 const prisma = new PrismaClient();
+
+// Request log middleware (structured JSON)
+app.use((req, res, next) => {
+	const start = Date.now();
+	res.on('finish', () => {
+		if (req.method === 'OPTIONS') return;
+		const log = {
+			level: 'info',
+			ts: new Date().toISOString(),
+			method: req.method,
+			path: req.originalUrl || req.url,
+			status: res.statusCode,
+			durationMs: Date.now() - start,
+		};
+		console.log(JSON.stringify(log));
+	});
+	return next();
+});
 
 // Google OAuth basic setup
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -461,6 +484,16 @@ app.use((req, res) => {
 // 500 handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-	console.error('Unhandled error', err);
+	try {
+		const log = {
+			level: 'error',
+			ts: new Date().toISOString(),
+			message: 'Unhandled error',
+			path: req.originalUrl || req.url,
+			method: req.method,
+			err: String(err && err.stack ? err.stack : err),
+		};
+		console.error(JSON.stringify(log));
+	} catch (_) {}
 	res.status(500).json({ error: 'Internal server error' });
 });
