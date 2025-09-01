@@ -92,11 +92,20 @@
 		}
 
 		async function apiGet(path){
-			const res = await fetch(api.replace(/\/$/,'') + path, { credentials: 'include' });
+			const token = localStorage.getItem('tck_jwt') || '';
+			const res = await fetch(api.replace(/\/$/,'') + path, {
+				credentials: 'include',
+				headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
+			});
 			return res.json();
 		}
 		async function apiPost(path){
-			const res = await fetch(api.replace(/\/$/,'') + path, { method:'POST', credentials: 'include' });
+			const token = localStorage.getItem('tck_jwt') || '';
+			const res = await fetch(api.replace(/\/$/,'') + path, {
+				method:'POST',
+				credentials: 'include',
+				headers: token ? { 'Authorization': 'Bearer ' + token } : undefined,
+			});
 			return res.json();
 		}
 
