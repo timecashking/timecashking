@@ -217,6 +217,11 @@
 				if(!name){ alert('Informe o nome da categoria'); return; }
 				setOut('Criando categoria...');
 				const data = await apiPost('/categories', { name });
+				if(data && data.error==='ValidationError'){
+					alert(data.details.join('\n'));
+					setOut(data);
+					return;
+				}
 				setOut(data);
 				await refreshCategoriesIntoSelect();
 			} catch(e){ setOut(String(e)); }

@@ -197,7 +197,11 @@ app.post('/auth/logout', (req, res) => {
 app.post('/categories', authMiddleware, async (req, res) => {
 	try {
 		const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
-		if (!name) return res.status(400).json({ error: 'Name is required' });
+		const errors = [];
+		if (!name) errors.push('name is required');
+		if (name && name.length < 2) errors.push('name must be at least 2 chars');
+		if (name && name.length > 60) errors.push('name must be <= 60 chars');
+		if (errors.length) return badRequest(res, errors);
 		const cat = await prisma.category.create({ data: { name, userId: req.user.userId } });
 		return res.json(cat);
 	} catch (e) {
@@ -230,7 +234,11 @@ app.patch('/categories/:id', authMiddleware, async (req, res) => {
     try {
         const id = String(req.params.id);
         const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
-        if (!name) return res.status(400).json({ error: 'Name is required' });
+        const errors = [];
+        if (!name) errors.push('name is required');
+        if (name && name.length < 2) errors.push('name must be at least 2 chars');
+        if (name && name.length > 60) errors.push('name must be <= 60 chars');
+        if (errors.length) return badRequest(res, errors);
         // ensure ownership
         const existing = await prisma.category.findUnique({ where: { id } });
         if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
