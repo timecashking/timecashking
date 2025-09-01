@@ -186,8 +186,19 @@ app.post('/categories', authMiddleware, async (req, res) => {
 
 app.get('/categories', authMiddleware, async (req, res) => {
 	try {
-		const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
-		return res.json(list);
+		const paginate = String(req.query.paginate || '').toLowerCase() === 'true';
+		if (!paginate) {
+			const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
+			return res.json(list);
+		}
+		const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+		const pageSize = Math.max(1, Math.min(100, parseInt(String(req.query.pageSize || '10'), 10) || 10));
+		const where = { userId: req.user.userId };
+		const [total, data] = await Promise.all([
+			prisma.category.count({ where }),
+			prisma.category.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+		]);
+		return res.json({ data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
 	} catch (e) {
 		console.error('GET /categories failed', e);
 		return res.status(500).json({ error: 'Categories failed', detail: String(e) });
@@ -242,12 +253,23 @@ app.post('/transactions', authMiddleware, async (req, res) => {
 
 app.get('/transactions', authMiddleware, async (req, res) => {
 	try {
-		const list = await prisma.transaction.findMany({
+		const paginate = String(req.query.paginate || '').toLowerCase() === 'true';
+		const baseQuery = {
 			where: { userId: req.user.userId },
 			orderBy: { date: 'desc' },
 			include: { category: true },
-		});
-		return res.json(list);
+		};
+		if (!paginate) {
+			const list = await prisma.transaction.findMany(baseQuery);
+			return res.json(list);
+		}
+		const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+		const pageSize = Math.max(1, Math.min(100, parseInt(String(req.query.pageSize || '10'), 10) || 10));
+		const [total, data] = await Promise.all([
+			prisma.transaction.count({ where: baseQuery.where }),
+			prisma.transaction.findMany({ ...baseQuery, skip: (page - 1) * pageSize, take: pageSize }),
+		]);
+		return res.json({ data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
 	} catch (e) {
 		console.error('GET /transactions failed', e);
 		return res.status(500).json({ error: 'Transactions failed', detail: String(e) });
