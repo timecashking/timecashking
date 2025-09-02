@@ -281,7 +281,7 @@ export function Home() {
                 )}
 
                 {/* Recent Transactions */}
-                {summary.recentTransactions.length > 0 && (
+                {summary?.recentTransactions?.length > 0 && (
                   <div className="bg-gray-800 rounded-lg p-6">
                     <h3 className="text-lg font-semibold mb-4">Transações Recentes</h3>
                     <div className="space-y-3">

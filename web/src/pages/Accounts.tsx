@@ -73,7 +73,7 @@ export function Accounts() {
         setCompanies(companiesData);
         
         // Set default company if available
-        if (companiesData.length > 0 && !formData.companyId) {
+        if (companiesData?.length > 0 && !formData.companyId) {
           setFormData(prev => ({ ...prev, companyId: companiesData[0].id }));
         }
       } else {
@@ -278,7 +278,7 @@ export function Accounts() {
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-400">Total de contas</p>
-              <p className="text-2xl font-bold text-yellow-400">{accounts.length}</p>
+              <p className="text-2xl font-bold text-yellow-400">{accounts?.length || 0}</p>
             </div>
           </div>
         </div>
@@ -383,7 +383,7 @@ export function Accounts() {
           ))}
         </div>
 
-        {filteredAccounts.length === 0 && (
+        {filteredAccounts?.length === 0 && (
           <div className="text-center py-12">
             <Wallet className="text-gray-600 mx-auto mb-4" size={48} />
             <h3 className="text-lg font-medium text-gray-400 mb-2">
