@@ -157,7 +157,7 @@ app.get('/health', (req, res) => {
 app.get('/auth/google', (req, res) => {
 	const authUrl = oauth2Client.generateAuthUrl({
 		access_type: 'offline',
-		scope: ['https://www.googleapis.com/auth/calendar'],
+		scope: ['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
 	});
 	res.redirect(authUrl);
 });
