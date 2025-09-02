@@ -1,11 +1,13 @@
 {
 	"name": "timecashking-backend",
 	"version": "1.0.0",
+	"type": "module",
 	"description": "Backend API para TimeCash King - Sistema de controle financeiro",
 	"main": "server.js",
 	"scripts": {
 		"start": "node server.js",
 		"dev": "nodemon server.js",
+		"dev:local": "node scripts/generate-prisma-local.cjs && nodemon server.js",
 		"build": "echo 'No build step required'",
 		"test": "jest",
 		"test:watch": "jest --watch",
@@ -15,8 +17,10 @@
 		"lint:fix": "eslint server.js --ext .js,.ts --fix",
 		"format": "prettier --write \"server.js\"",
 		"format:check": "prettier --check \"server.js\"",
-		"type-check": "tsc --noEmit",
-		"prepare": "husky install"
+		"prepare": "husky install",
+		"prisma:generate": "npx prisma generate",
+		"prisma:generate:local": "node scripts/generate-prisma-local.cjs",
+		"setup:admin": "node scripts/setup-admin.js"
 	},
 	"keywords": [
 		"finance",
@@ -60,25 +64,12 @@
 		"nodemon": "^3.0.2",
 		"jest": "^29.7.0",
 		"supertest": "^6.3.3",
-		"@types/jest": "^29.5.8",
-		"@types/node": "^20.10.4",
-		"@types/express": "^4.17.21",
-		"@types/cors": "^2.8.17",
-		"@types/bcryptjs": "^2.4.6",
-		"@types/jsonwebtoken": "^9.0.5",
-		"@types/compression": "^1.7.5",
-		"@types/morgan": "^1.9.9",
-		"@types/swagger-jsdoc": "^6.0.4",
-		"@types/swagger-ui-express": "^4.1.6",
-		"@types/node-cron": "^3.0.11",
+
 		"eslint": "^8.55.0",
 		"eslint-config-prettier": "^9.1.0",
 		"eslint-plugin-prettier": "^5.0.1",
-		"@typescript-eslint/eslint-plugin": "^6.13.1",
-		"@typescript-eslint/parser": "^6.13.1",
 		"prettier": "^3.1.1",
-		"husky": "^8.0.3",
-		"typescript": "^5.3.3"
+		"husky": "^8.0.3"
 	},
 	"engines": {
 		"node": ">=18.0.0",

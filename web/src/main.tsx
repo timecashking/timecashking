@@ -19,6 +19,7 @@ import { Sales } from './pages/Sales';
 import { Purchases } from './pages/Purchases';
 import { Schedule } from './pages/Schedule';
 import { Bills } from './pages/Bills';
+import { CreditCardInvoices } from './pages/CreditCardInvoices';
 
 const router = createBrowserRouter([
 	{
@@ -44,6 +45,10 @@ const router = createBrowserRouter([
 	{
 		path: '/bills',
 		element: <Bills />,
+	},
+	{
+		path: '/credit-card-invoices',
+		element: <CreditCardInvoices />,
 	},
 	{
 		path: '/products',

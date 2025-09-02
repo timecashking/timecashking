@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { API, authHeaders } from '../api';
 import toast from 'react-hot-toast';
+import { LoginScreen } from '../components/LoginScreen';
+import { Navigation } from '../components/Navigation';
 
 interface User {
   id: string;
@@ -64,6 +66,22 @@ export function Home() {
     }
   };
 
+  const handleLoginSuccess = (userData: any, token: string) => {
+    // Salva o token no localStorage
+    localStorage.setItem('token', token);
+    // Recarrega os dados
+    loadData();
+    toast.success('Login realizado com sucesso!');
+  };
+
+  const handleActivationSuccess = (userData: any, companyData: any, token: string) => {
+    // Salva o token no localStorage
+    localStorage.setItem('token', token);
+    // Recarrega os dados
+    loadData();
+    toast.success('Conta ativada com sucesso!');
+  };
+
   const login = () => {
     window.location.href = `${API}/auth/google`;
   };
@@ -110,82 +128,16 @@ export function Home() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <h1 className="text-2xl font-bold text-yellow-400">TimeCash King</h1>
-              <span className="text-sm text-gray-400">O Rei do seu Tempo e do seu Dinheiro</span>
-            </div>
-            {user && (
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  {user.avatarUrl ? (
-                    <img src={user.avatarUrl} alt={user.name} className="w-8 h-8 rounded-full" />
-                  ) : (
-                    <User className="w-8 h-8 text-gray-400" />
-                  )}
-                  <span className="text-sm text-gray-300">
-                    {user.name}
-                  </span>
-                </div>
-                <button
-                  onClick={logout}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
       {!user ? (
         /* Login Screen */
-        <main className="container mx-auto px-4 py-16">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-gray-800 rounded-lg p-8">
-              <h2 className="text-3xl font-bold text-yellow-400 mb-4">Bem-vindo ao TimeCash King</h2>
-              <p className="text-gray-400 mb-8">
-                Gerencie suas finanças, estoque, vendas e agenda de forma inteligente e eficiente.
-              </p>
-              <button 
-                onClick={login}
-                className="bg-yellow-500 hover:bg-yellow-600 text-black px-8 py-3 rounded-lg font-semibold text-lg transition-colors"
-              >
-                Login com Google
-              </button>
-            </div>
-          </div>
-        </main>
+        <LoginScreen 
+          onLoginSuccess={handleLoginSuccess} 
+          onActivationSuccess={handleActivationSuccess}
+        />
       ) : (
         <>
           {/* Navigation */}
-          <nav className="bg-gray-800 border-b border-gray-700">
-            <div className="container mx-auto px-4">
-              <div className="flex space-x-6 py-4 overflow-x-auto">
-                <Link to="/" className="text-yellow-400 font-semibold">Dashboard</Link>
-                <Link to="/companies" className="text-gray-300 hover:text-white transition-colors">Empresas</Link>
-                <Link to="/accounts" className="text-gray-300 hover:text-white transition-colors">Contas</Link>
-                <Link to="/categories" className="text-gray-300 hover:text-white transition-colors">Categorias</Link>
-                <Link to="/transactions" className="text-gray-300 hover:text-white transition-colors">Transações</Link>
-                <Link to="/bills" className="text-gray-300 hover:text-white transition-colors">Contas</Link>
-                <Link to="/products" className="text-gray-300 hover:text-white transition-colors">Produtos</Link>
-                <Link to="/inventory" className="text-gray-300 hover:text-white transition-colors">Estoque</Link>
-                <Link to="/sales" className="text-gray-300 hover:text-white transition-colors">Vendas</Link>
-                <Link to="/purchases" className="text-gray-300 hover:text-white transition-colors">Compras</Link>
-                <Link to="/schedule" className="text-gray-300 hover:text-white transition-colors">Agenda</Link>
-                <Link to="/summary" className="text-gray-300 hover:text-white transition-colors">Resumo</Link>
-                <Link to="/reports" className="text-gray-300 hover:text-white transition-colors">Relatórios</Link>
-                <Link to="/notifications" className="text-gray-300 hover:text-white transition-colors">Notificações</Link>
-                {Boolean(user?.companyUsers?.some(cu => cu.role === 'ADMIN')) && (
-                  <Link to="/admin" className="text-gray-300 hover:text-white transition-colors">Admin</Link>
-                )}
-              </div>
-            </div>
-          </nav>
+          <Navigation user={user} onLogout={logout} />
 
           {/* Main Content */}
           <main className="container mx-auto px-4 py-8">

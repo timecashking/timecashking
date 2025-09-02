@@ -1,0 +1,7 @@
+JWT_SECRET=dev-secret-key-change-in-production
+GOOGLE_CLIENT_ID=dev-google-client-id
+GOOGLE_CLIENT_SECRET=dev-google-client-secret
+FRONTEND_URL=http://localhost:3000
+DATABASE_URL=file:./dev.db
+PORT=3000
+NODE_ENV=development
