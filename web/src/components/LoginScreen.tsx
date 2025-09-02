@@ -11,7 +11,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import logo from '../assets/logo.svg';
+import logo from '../assets/logo.png';
 import { API } from '../api';
 import toast from 'react-hot-toast';
 
@@ -128,7 +128,7 @@ export function LoginScreen({ onLoginSuccess, onActivationSuccess }: LoginScreen
         {/* Logo e Título */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <img src={logo} alt="TimeCash King" className="w-24 h-24" />
+            <img src={logo} alt="TimeCash King" className="w-32 h-32 object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-yellow-400 mb-2">TimeCash King</h1>
           <p className="text-gray-400">O Rei do seu Tempo e do seu Dinheiro</p>
