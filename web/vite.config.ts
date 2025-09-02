@@ -5,7 +5,7 @@ export default defineConfig({
 	plugins: [react()],
 	define: {
 		'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'https://timecashking-api.onrender.com'),
-	},
+	}
 })
 
 
