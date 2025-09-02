@@ -19,7 +19,27 @@ const { PrismaClient } = pkg;
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Verificar variáveis de ambiente críticas
+const requiredEnvVars = ['JWT_SECRET', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+	console.error('❌ Variáveis de ambiente obrigatórias não encontradas:', missingEnvVars);
+	console.error('Por favor, configure as seguintes variáveis no Render:');
+	missingEnvVars.forEach(envVar => console.error(`- ${envVar}`));
+	process.exit(1);
+}
+
 const prisma = new PrismaClient();
+
+// Testar conexão com o banco
+prisma.$connect()
+	.then(() => console.log('✅ Conectado ao banco de dados'))
+	.catch((error) => {
+		console.error('❌ Erro ao conectar ao banco:', error);
+		process.exit(1);
+	});
 
 // Telegram Bot
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
