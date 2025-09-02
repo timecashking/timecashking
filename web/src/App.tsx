@@ -19,6 +19,7 @@ import { Subscription } from './pages/Subscription';
 import { Manager } from './pages/Manager';
 import { Admin } from './pages/Admin';
 import { AuthCallback } from './pages/AuthCallback';
+import { Test } from './pages/Test';
 import './App.css';
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
           <Route path="/manager" element={<Manager />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/test" element={<Test />} />
         </Routes>
         <Toaster 
           position="top-right"
