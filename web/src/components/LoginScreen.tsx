@@ -57,34 +57,25 @@ export function LoginScreen({ onLoginSuccess, onActivationSuccess }: LoginScreen
       return;
     }
 
-    console.log('Iniciando login...', { email: loginData.email, API });
     setIsLoading(true);
-    
     try {
-      console.log('Fazendo requisição para:', `${API}/auth/login`);
       const response = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginData)
       });
 
-      console.log('Resposta recebida:', response.status, response.statusText);
       const result = await response.json();
-      console.log('Resultado:', result);
 
       if (response.ok && result.success) {
-        console.log('Login bem-sucedido, chamando onLoginSuccess');
         onLoginSuccess(result.user, result.token);
         toast.success('Login realizado com sucesso!');
       } else {
-        console.log('Erro no login:', result.error);
         toast.error(result.error || 'Erro no login');
       }
     } catch (error) {
-      console.error('Erro durante login:', error);
       toast.error('Erro de conexão');
     } finally {
-      console.log('Finalizando login, setIsLoading(false)');
       setIsLoading(false);
     }
   };
