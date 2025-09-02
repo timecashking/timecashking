@@ -1,10 +1,26 @@
-name: Deploy via hooks
+name: Main Workflow
+
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - run: cd web && npm ci
+      - run: cd web && npm run build
+
   deploy:
     runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - name: Trigger Render Deploy Hook
