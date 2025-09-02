@@ -153,6 +153,11 @@ app.get('/health', (req, res) => {
 	res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Test route
+app.get('/test', (req, res) => {
+	res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
+});
+
 // Google OAuth
 app.get('/auth/google', (req, res) => {
 	const authUrl = oauth2Client.generateAuthUrl({
