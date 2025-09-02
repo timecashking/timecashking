@@ -209,7 +209,7 @@ export function LoginScreen({ onLoginSuccess, onActivationSuccess }: LoginScreen
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <img src={logo} alt="TimeCash King" className="w-40 h-40 object-contain" />
+            <img src={logo} alt="TimeCash King" className="w-56 h-56 object-contain" />
           </div>
           <p className="text-gray-400">O Rei do seu Tempo e do seu Dinheiro</p>
         </div>
