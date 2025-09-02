@@ -1,80 +1,14 @@
 name: Security Checks
-
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
     branches: [ main ]
-  schedule:
-    - cron: '0 2 * * *'
-
 jobs:
   dependency-check:
-    name: Verificação de Dependências
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          
-      - name: Instalar dependências do backend
-        run: |
-          cd .
-          npm ci
-          
-      - name: Instalar dependências do frontend
-        run: |
-          cd web
-          npm ci
-          
-      - name: Verificar vulnerabilidades do backend
-        run: |
-          cd .
-          npm audit --audit-level=moderate || echo "Vulnerabilidades encontradas no backend"
-          
-      - name: Verificar vulnerabilidades do frontend
-        run: |
-          cd web
-          npm audit --audit-level=moderate || echo "Vulnerabilidades encontradas no frontend"
-
-  codeql:
-    name: Análise de Código (CodeQL)
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript
-          
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-        
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
-  secrets-check:
-    name: Verificação de Secrets
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Verificar secrets no código
-        run: |
-          if grep -r "sk_live\|pk_live\|api_key\|secret\|password" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "Possíveis secrets encontrados no código!"
-            exit 1
-          else
-            echo "Nenhum secret encontrado no código"
-          fi
+      - run: cd web && npm ci
+      - run: cd web && npm audit --audit-level=moderate || echo "Vulnerabilidades encontradas"

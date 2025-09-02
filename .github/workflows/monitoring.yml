@@ -1,51 +1,13 @@
-name: Monitoramento e Alertas
-
+name: Monitoramento
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch:
-
 jobs:
   health-check:
-    name: Health Check
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
       - name: Health Check Backend
-        run: |
-          echo "Verificando backend..."
-          curl -f -s https://timecashking-api.onrender.com/api/health || echo "Backend offline"
-          
+        run: curl -f -s https://timecashking-api.onrender.com/api/health || echo "Backend offline"
       - name: Health Check Frontend
-        run: |
-          echo "Verificando frontend..."
-          curl -f -s https://timecashking.netlify.app || echo "Frontend offline"
-
-  performance-monitor:
-    name: Monitoramento de Performance
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Teste de Performance Backend
-        run: |
-          echo "Testando performance do backend..."
-          start_time=$(date +%s)
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://timecashking-api.onrender.com/api/health)
-          end_time=$(date +%s)
-          duration=$((end_time - start_time))
-          echo "Tempo de resposta: ${duration}s"
-          
-      - name: Teste de Performance Frontend
-        run: |
-          echo "Testando performance do frontend..."
-          start_time=$(date +%s)
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://timecashking.netlify.app)
-          end_time=$(date +%s)
-          duration=$((end_time - start_time))
-          echo "Tempo de resposta: ${duration}s"
+        run: curl -f -s https://timecashking.netlify.app || echo "Frontend offline"
