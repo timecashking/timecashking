@@ -56,8 +56,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <img src={logo} alt="TimeCash King" className="w-10 h-10 object-contain" />
-              <h1 className="text-2xl font-bold text-yellow-400">TimeCash King</h1>
+              <img src={logo} alt="TimeCash King" className="w-12 h-12 object-contain" />
               <span className="hidden md:block text-sm text-gray-400">O Rei do seu Tempo e do seu Dinheiro</span>
             </div>
             
