@@ -6,6 +6,7 @@ import {
   ArrowLeft, Menu, X
 } from 'lucide-react';
 import { useState } from 'react';
+import logo from '../assets/logo.svg';
 
 interface NavigationProps {
   user: any;
@@ -55,6 +56,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
+              <img src={logo} alt="TimeCash King" className="w-8 h-8" />
               <h1 className="text-2xl font-bold text-yellow-400">TimeCash King</h1>
               <span className="hidden md:block text-sm text-gray-400">O Rei do seu Tempo e do seu Dinheiro</span>
             </div>

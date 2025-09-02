@@ -1,0 +1,49 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fundo preto -->
+  <rect width="120" height="120" fill="#000000"/>
+  
+  <!-- Coroa dourada -->
+  <g fill="#FFD700">
+    <!-- Base da coroa -->
+    <rect x="25" y="50" width="70" height="6" rx="3"/>
+    
+    <!-- Pontas da coroa -->
+    <polygon points="30,50 35,30 40,50"/>
+    <polygon points="40,50 45,25 50,50"/>
+    <polygon points="50,50 55,30 60,50"/>
+    <polygon points="60,50 65,25 70,50"/>
+    <polygon points="70,50 75,30 80,50"/>
+    
+    <!-- Detalhes da coroa -->
+    <circle cx="35" cy="35" r="1.5" fill="#FFA500"/>
+    <circle cx="45" cy="30" r="1.5" fill="#FFA500"/>
+    <circle cx="55" cy="35" r="1.5" fill="#FFA500"/>
+    <circle cx="65" cy="30" r="1.5" fill="#FFA500"/>
+    <circle cx="75" cy="35" r="1.5" fill="#FFA500"/>
+  </g>
+  
+  <!-- Relógio dourado -->
+  <g fill="#FFD700">
+    <!-- Borda do relógio -->
+    <circle cx="60" cy="75" r="22" fill="none" stroke="#FFD700" stroke-width="2.5"/>
+    
+    <!-- Marcadores das horas -->
+    <line x1="60" y1="56" x2="60" y2="58" stroke="#FFD700" stroke-width="2"/>
+    <line x1="82" y1="75" x2="80" y2="75" stroke="#FFD700" stroke-width="2"/>
+    <line x1="60" y1="92" x2="60" y2="94" stroke="#FFD700" stroke-width="2"/>
+    <line x1="38" y1="75" x2="40" y2="75" stroke="#FFD700" stroke-width="2"/>
+    
+    <!-- Ponteiros -->
+    <line x1="60" y1="75" x2="68" y2="70" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+    <line x1="60" y1="75" x2="65" y2="78" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Centro do relógio -->
+    <circle cx="60" cy="75" r="2.5" fill="#FFD700"/>
+  </g>
+  
+  <!-- Texto TIMECASH -->
+  <text x="60" y="105" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#FFD700">TIMECASH</text>
+  
+  <!-- Texto KING -->
+  <text x="60" y="118" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#FFD700">KING</text>
+</svg>
