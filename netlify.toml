@@ -1,6 +1,21 @@
 [build]
-	publish = "web/dist"
-	command = "npm ci --prefix web && npm run --prefix web build"
+  base = "web"
+  publish = "web/dist"
+  command = "npm run build"
 
 [build.environment]
-	VITE_API_URL = "https://timecashking-api.onrender.com"
+  NODE_VERSION = "18"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production.environment]
+  VITE_API_URL = "https://timecashking-api.onrender.com"
+
+[context.deploy-preview.environment]
+  VITE_API_URL = "https://timecashking-api.onrender.com"
+
+[context.branch-deploy.environment]
+  VITE_API_URL = "https://timecashking-api.onrender.com"

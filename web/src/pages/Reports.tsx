@@ -1,5 +1,5 @@
 import React from 'react';
-import { apiGet } from '../api';
+import { apiGet, API } from '../api';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
@@ -44,7 +44,7 @@ export function Reports() {
 			const params = new URLSearchParams();
 			params.append('start', startDate);
 			params.append('end', endDate);
-			const response = await fetch(`${import.meta.env.VITE_API_URL}/reports/pdf?${params}`, {
+			const response = await fetch(`${API}/reports/pdf?${params}`, {
 				credentials: 'include'
 			});
 			const blob = await response.blob();

@@ -1,4 +1,4 @@
-// Prisma schema for Neon Postgres
+// Prisma schema for TimeCash King
 // datasource
 datasource db {
 	provider = "postgresql"
@@ -9,30 +9,87 @@ generator client {
 	provider = "prisma-client-js"
 }
 
+// ===== ENUMS =====
 enum UserRole {
-	USER
+	OWNER
 	ADMIN
-	MANAGER
+	MEMBER
 }
 
-enum SubscriptionStatus {
-	ACTIVE
-	CANCELED
-	PAST_DUE
-	UNPAID
-	TRIAL
+enum AccountType {
+	CASH
+	BANK
+	CREDIT_CARD
 }
 
-enum PaymentStatus {
+enum TransactionType {
+	INCOME
+	EXPENSE
+	TRANSFER
+}
+
+enum BillType {
+	PAYABLE
+	RECEIVABLE
+}
+
+enum BillStatus {
 	PENDING
-	SUCCEEDED
-	FAILED
-	REFUNDED
+	PAID
+	OVERDUE
+}
+
+enum CardStatus {
+	OPEN
+	CLOSED
+	PAID
+}
+
+enum ProductStatus {
+	ACTIVE
+	INACTIVE
+}
+
+enum MovementType {
+	ENTRY
+	EXIT
+}
+
+enum MovementReason {
+	PURCHASE
+	SALE
+	RETURN
+	DONATION
+	LOSS
+	ADJUSTMENT
+}
+
+enum OrderStatus {
+	DRAFT
+	CONFIRMED
+	CANCELLED
+	DELIVERED
+}
+
+enum PaymentMethod {
+	CASH
+	PIX
+	CREDIT_CARD
+	DEBIT_CARD
+	BANK_TRANSFER
+}
+
+enum EventType {
+	MEETING
+	APPOINTMENT
+	REMINDER
+	OTHER
 }
 
 enum NotificationType {
 	EMAIL
 	PUSH
+	TELEGRAM
 	BOTH
 }
 
@@ -42,6 +99,8 @@ enum NotificationCategory {
 	REPORT
 	PAYMENT
 	SYSTEM
+	STOCK
+	EVENT
 }
 
 enum NotificationStatus {
@@ -51,86 +110,280 @@ enum NotificationStatus {
 	READ
 }
 
-model User {
+// ===== MODELS =====
+
+// Empresa/Organização
+model Company {
+	id          String   @id @default(cuid())
+	name        String
+	description String?
+	active      Boolean  @default(true)
+	createdAt   DateTime @default(now())
+	updatedAt   DateTime @updatedAt
+
+	// Relations
+	users       CompanyUser[]
+	accounts    Account[]
+	categories  Category[]
+	transactions Transaction[]
+	bills       Bill[]
+	products    Product[]
+	movements   StockMovement[]
+	salesOrders SalesOrder[]
+	purchaseOrders PurchaseOrder[]
+	events      Event[]
+	reminders   Reminder[]
+}
+
+// Usuário da empresa
+model CompanyUser {
 	id        String   @id @default(cuid())
-	googleId  String   @unique
-	email     String   @unique
-	name      String?
-	avatarUrl String?
-	role      UserRole @default(USER)
+	companyId String
+	company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	userId    String
+	user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+	role      UserRole @default(MEMBER)
+	active    Boolean  @default(true)
 	createdAt DateTime @default(now())
 
-	// relations
-	categories      Category[]
-	transactions    Transaction[]
-	subscription    Subscription?
-	payments        Payment[]
-	notifications   Notification[]
+	@@unique([companyId, userId])
+}
+
+// Usuário principal
+model User {
+	id             String   @id @default(cuid())
+	googleId      String   @unique
+	email         String   @unique
+	name          String?
+	avatarUrl     String?
+	telegramChatId String?  @unique
+	timezone      String   @default("America/Sao_Paulo")
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+
+	// Relations
+	companyUsers  CompanyUser[]
+	notifications Notification[]
 	notificationPreferences NotificationPreference?
 }
 
-enum TransactionType {
-	INCOME
-	EXPENSE
+// Contas (Caixa, Banco, Cartão)
+model Account {
+	id          String      @id @default(cuid())
+	companyId   String
+	company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	name        String
+	type        AccountType
+	balance     Decimal     @db.Decimal(12, 2) @default(0)
+	billingDay  Int?        // Para cartões
+	dueDay      Int?        // Para cartões
+	active      Boolean     @default(true)
+	createdAt   DateTime    @default(now())
+	updatedAt   DateTime    @updatedAt
+
+	// Relations
+	transactions Transaction[]
+	bills        Bill[]
 }
 
+// Categorias
 model Category {
 	id        String   @id @default(cuid())
+	companyId String
+	company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 	name      String
-	userId    String
-	user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+	type      TransactionType
+	active    Boolean  @default(true)
 	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
 
+	// Relations
 	transactions Transaction[]
 }
 
+// Transações
 model Transaction {
 	id          String           @id @default(cuid())
-	userId      String
-	user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+	companyId   String
+	company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	accountId   String
+	account     Account          @relation(fields: [accountId], references: [id])
 	categoryId  String?
 	category    Category?        @relation(fields: [categoryId], references: [id])
 	type        TransactionType
 	amount      Decimal          @db.Decimal(12, 2)
 	description String?
 	date        DateTime         @default(now())
+	isPaid      Boolean          @default(true)
+	dueDate     DateTime?
+	recurrence  String?          // "monthly", "weekly", etc.
 	createdAt   DateTime         @default(now())
+	updatedAt   DateTime         @updatedAt
+
+	// Relations
+	bills       Bill[]
 }
 
-model Subscription {
-	id                String             @id @default(cuid())
-	userId            String             @unique
-	user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-	stripeCustomerId  String?            @unique
-	stripeSubscriptionId String?         @unique
-	planId            String
-	planName          String
-	planPrice         Decimal            @db.Decimal(10, 2)
-	status            SubscriptionStatus @default(TRIAL)
-	currentPeriodStart DateTime?
-	currentPeriodEnd   DateTime?
-	trialEnd          DateTime?
-	canceledAt        DateTime?
-	createdAt         DateTime           @default(now())
-	updatedAt         DateTime           @updatedAt
+// Contas a pagar/receber
+model Bill {
+	id            String    @id @default(cuid())
+	companyId     String
+	company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	accountId     String
+	account       Account   @relation(fields: [accountId], references: [id])
+	transactionId String?
+	transaction   Transaction? @relation(fields: [transactionId], references: [id])
+	type          BillType
+	status        BillStatus @default(PENDING)
+	amount        Decimal   @db.Decimal(12, 2)
+	description   String
+	dueDate       DateTime
+	paidAt        DateTime?
+	createdAt     DateTime  @default(now())
+	updatedAt     DateTime  @updatedAt
 }
 
-model Payment {
-	id                String        @id @default(cuid())
-	userId            String
-	user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-	subscriptionId    String?
-	subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
-	stripePaymentId   String?       @unique
-	stripeInvoiceId   String?       @unique
-	amount            Decimal       @db.Decimal(10, 2)
-	currency          String        @default("BRL")
-	status            PaymentStatus @default(PENDING)
-	description       String?
-	paidAt            DateTime?
-	createdAt         DateTime      @default(now())
+// Produtos
+model Product {
+	id            String        @id @default(cuid())
+	companyId     String
+	company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	sku           String        @unique
+	name          String
+	description   String?
+	cost          Decimal       @db.Decimal(12, 2)
+	salePrice     Decimal       @db.Decimal(12, 2)
+	stock         Int           @default(0)
+	minStock      Int           @default(0)
+	category      String?
+	status        ProductStatus @default(ACTIVE)
+	createdAt     DateTime      @default(now())
+	updatedAt     DateTime      @updatedAt
+
+	// Relations
+	movements     StockMovement[]
+	salesItems    SalesOrderItem[]
+	purchaseItems PurchaseOrderItem[]
 }
 
+// Movimentações de estoque
+model StockMovement {
+	id          String         @id @default(cuid())
+	companyId   String
+	company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	productId   String
+	product     Product        @relation(fields: [productId], references: [id])
+	type        MovementType
+	reason      MovementReason
+	quantity    Int
+	unitCost    Decimal        @db.Decimal(12, 2)
+	totalCost   Decimal        @db.Decimal(12, 2)
+	description String?
+	date        DateTime       @default(now())
+	createdAt   DateTime       @default(now())
+}
+
+// Pedidos de venda
+model SalesOrder {
+	id            String        @id @default(cuid())
+	companyId     String
+	company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	customerName  String
+	customerEmail String?
+	customerPhone String?
+	status        OrderStatus   @default(DRAFT)
+	total         Decimal       @db.Decimal(12, 2) @default(0)
+	discount      Decimal       @db.Decimal(12, 2) @default(0)
+	paymentMethod PaymentMethod
+	notes         String?
+	orderDate     DateTime      @default(now())
+	deliveryDate  DateTime?
+	createdAt     DateTime      @default(now())
+	updatedAt     DateTime      @updatedAt
+
+	// Relations
+	items         SalesOrderItem[]
+}
+
+// Itens do pedido de venda
+model SalesOrderItem {
+	id           String      @id @default(cuid())
+	salesOrderId String
+	salesOrder   SalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+	productId    String
+	product      Product     @relation(fields: [productId], references: [id])
+	quantity     Int
+	unitPrice    Decimal     @db.Decimal(12, 2)
+	totalPrice   Decimal     @db.Decimal(12, 2)
+	createdAt    DateTime    @default(now())
+}
+
+// Pedidos de compra
+model PurchaseOrder {
+	id            String        @id @default(cuid())
+	companyId     String
+	company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	supplierName  String
+	supplierEmail String?
+	supplierPhone String?
+	status        OrderStatus   @default(DRAFT)
+	total         Decimal       @db.Decimal(12, 2) @default(0)
+	freight       Decimal       @db.Decimal(12, 2) @default(0)
+	notes         String?
+	orderDate     DateTime      @default(now())
+	deliveryDate  DateTime?
+	createdAt     DateTime      @default(now())
+	updatedAt     DateTime      @updatedAt
+
+	// Relations
+	items         PurchaseOrderItem[]
+}
+
+// Itens do pedido de compra
+model PurchaseOrderItem {
+	id             String        @id @default(cuid())
+	purchaseOrderId String
+	purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+	productId       String
+	product         Product      @relation(fields: [productId], references: [id])
+	quantity        Int
+	unitCost        Decimal      @db.Decimal(12, 2)
+	totalCost       Decimal      @db.Decimal(12, 2)
+	createdAt       DateTime     @default(now())
+}
+
+// Eventos/Agenda
+model Event {
+	id          String    @id @default(cuid())
+	companyId   String
+	company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	title       String
+	description String?
+	type        EventType @default(MEETING)
+	startDate   DateTime
+	endDate     DateTime
+	contact     String?
+	location    String?
+	googleEventId String? // Para integração com Google Calendar
+	createdAt   DateTime  @default(now())
+	updatedAt   DateTime  @updatedAt
+}
+
+// Lembretes
+model Reminder {
+	id          String   @id @default(cuid())
+	companyId   String
+	company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	title       String
+	message     String
+	type        String   // "bill", "event", "stock", etc.
+	dueDate     DateTime
+	sent        Boolean  @default(false)
+	sentAt      DateTime?
+	createdAt   DateTime @default(now())
+}
+
+// Notificações
 model Notification {
 	id          String             @id @default(cuid())
 	userId      String
@@ -140,24 +393,26 @@ model Notification {
 	title       String
 	message     String
 	status      NotificationStatus @default(PENDING)
-	metadata    Json?              // Additional data like transaction ID, amount, etc.
+	metadata    Json?              // Additional data
 	sentAt      DateTime?
 	readAt      DateTime?
 	createdAt   DateTime           @default(now())
 }
 
+// Preferências de notificação
 model NotificationPreference {
 	id                    String   @id @default(cuid())
 	userId                String   @unique
 	user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 	emailEnabled          Boolean  @default(true)
 	pushEnabled           Boolean  @default(true)
+	telegramEnabled       Boolean  @default(true)
 	reminderEnabled       Boolean  @default(true)
 	alertEnabled          Boolean  @default(true)
 	reportEnabled         Boolean  @default(true)
-	paymentEnabled        Boolean  @default(true)
-	systemEnabled         Boolean  @default(true)
-	reminderFrequency     String   @default("weekly") // daily, weekly, monthly
+	stockEnabled          Boolean  @default(true)
+	eventEnabled          Boolean  @default(true)
+	reminderFrequency     String   @default("daily") // daily, weekly, monthly
 	reportFrequency       String   @default("monthly") // weekly, monthly, quarterly
 	createdAt             DateTime @default(now())
 	updatedAt             DateTime @updatedAt

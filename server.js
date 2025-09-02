@@ -5,22 +5,57 @@ import { OAuth2Client } from 'google-auth-library';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import pkg from '@prisma/client';
-import puppeteer from 'puppeteer';
-import Handlebars from 'handlebars';
-import Stripe from 'stripe';
+import { Telegraf } from 'telegraf';
+import { message } from 'telegraf/filters';
+import { google } from 'googleapis';
 import nodemailer from 'nodemailer';
-import webPush from 'web-push';
 import cron from 'node-cron';
-import axios from 'axios';
-import swaggerJsdoc from 'swagger-jsdoc';
-import swaggerUi from 'swagger-ui-express';
 import { body, query, validationResult } from 'express-validator';
 import compression from 'compression';
 import morgan from 'morgan';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
 const { PrismaClient } = pkg;
 
 const app = express();
 const port = process.env.PORT || 3000;
+const prisma = new PrismaClient();
+
+// Telegram Bot
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
+
+// Google Calendar API
+const oauth2Client = new google.auth.OAuth2(
+	process.env.GOOGLE_CLIENT_ID,
+	process.env.GOOGLE_CLIENT_SECRET,
+	process.env.GOOGLE_REDIRECT_URI
+);
+
+const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+// Middleware
+app.use(helmet());
+app.use(compression());
+app.use(morgan('combined'));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// CORS
+app.use(cors({
+	origin: [
+		'https://timecashking.netlify.app',
+		'http://localhost:5173',
+		'http://localhost:3000'
+	],
+	credentials: true
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
 
 // Swagger configuration
 const swaggerOptions = {
@@ -29,21 +64,11 @@ const swaggerOptions = {
 		info: {
 			title: 'TimeCash King API',
 			version: '1.0.0',
-			description: 'API completa para o sistema de gestão financeira TimeCash King',
-			contact: {
-				name: 'TimeCash King Support',
-				email: 'support@timecashking.com',
-			},
+			description: 'API completa para o sistema TimeCash King',
 		},
 		servers: [
-			{
-				url: 'https://timecashking-api.onrender.com',
-				description: 'Production server',
-			},
-			{
-				url: 'http://localhost:3000',
-				description: 'Development server',
-			},
+			{ url: 'https://timecashking-api.onrender.com' },
+			{ url: 'http://localhost:3000' }
 		],
 		components: {
 			securitySchemes: {
@@ -54,2461 +79,970 @@ const swaggerOptions = {
 				},
 			},
 		},
-		security: [
-			{
-				bearerAuth: [],
-			},
-		],
 	},
-	apis: ['./server.js'], // Path to the API docs
+	apis: ['./server.js'],
 };
 
 const specs = swaggerJsdoc(swaggerOptions);
-
-// External API services
-class ExternalAPIService {
-	static async getCurrencyRates() {
-		try {
-			const response = await axios.get('https://api.exchangerate-api.com/v4/latest/BRL');
-			return response.data;
-		} catch (error) {
-			console.error('Currency API error:', error);
-			return null;
-		}
-	}
-	
-	static async getCryptoRates() {
-		try {
-			const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=brl,usd');
-			return response.data;
-		} catch (error) {
-			console.error('Crypto API error:', error);
-			return null;
-		}
-	}
-	
-	static async getStockPrice(symbol) {
-		try {
-			const response = await axios.get(`https://api.twelvedata.com/price?symbol=${symbol}&apikey=${process.env.TWELVE_DATA_API_KEY}`);
-			return response.data;
-		} catch (error) {
-			console.error('Stock API error:', error);
-			return null;
-		}
-	}
-	
-	static async getWeatherData(city) {
-		try {
-			const response = await axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`);
-			return response.data;
-		} catch (error) {
-			console.error('Weather API error:', error);
-			return null;
-		}
-	}
-}
-
-app.use(express.json());
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
-
-// Enhanced middleware
-app.use(compression());
-app.use(morgan('combined'));
-
-// API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
-// Enhanced rate limiting
-const apiLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	max: 100, // limit each IP to 100 requests per windowMs
-	message: 'Too many requests from this IP, please try again later.',
-	standardHeaders: true,
-	legacyHeaders: false,
-});
+// Authentication middleware
+const authenticateToken = async (req, res, next) => {
+	const authHeader = req.headers['authorization'];
+	const token = authHeader && authHeader.split(' ')[1];
 
-const authLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	max: 5, // limit each IP to 5 requests per windowMs
-	message: 'Too many authentication attempts, please try again later.',
-	standardHeaders: true,
-	legacyHeaders: false,
-});
-
-app.use('/api/', apiLimiter);
-app.use('/auth/', authLimiter);
-
-// CORS for Netlify site (handle preflight explicitly) + allow local dev
-const allowedOrigin = process.env.NETLIFY_SITE_URL || 'https://timecashking.netlify.app';
-const envOrigins = (process.env.ALLOWED_ORIGINS || '')
-	.split(',')
-	.map(s => s.trim())
-	.filter(Boolean);
-const extraOrigins = [
-	'http://localhost:3000',
-	'http://localhost:5173',
-	'http://127.0.0.1:5500',
-	...envOrigins,
-];
-const corsOptions = {
-	origin: (origin, callback) => {
-		if (!origin) return callback(null, true); // non-browser / curl
-		const isNetlify = /https?:\/\/([a-z0-9-]+)\.netlify\.app$/i.test(origin);
-		if (origin === allowedOrigin || extraOrigins.includes(origin) || isNetlify) return callback(null, true);
-		return callback(new Error('Not allowed by CORS: ' + origin));
-	},
-	credentials: true,
-	methods: ['GET', 'POST', 'OPTIONS'],
-	allowedHeaders: ['Content-Type', 'Authorization'],
-};
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-
-const prisma = new PrismaClient();
-
-// Stripe configuration
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-	apiVersion: '2023-10-16',
-});
-
-// Email configuration
-const emailTransporter = nodemailer.createTransporter({
-	service: 'gmail',
-	auth: {
-		user: process.env.EMAIL_USER,
-		pass: process.env.EMAIL_PASSWORD,
-	},
-});
-
-// Push notification configuration
-webPush.setVapidDetails(
-	`mailto:${process.env.EMAIL_USER}`,
-	process.env.VAPID_PUBLIC_KEY,
-	process.env.VAPID_PRIVATE_KEY
-);
-
-// Notification service
-class NotificationService {
-	static async sendEmail(to, subject, html) {
-		try {
-			const mailOptions = {
-				from: process.env.EMAIL_USER,
-				to,
-				subject,
-				html,
-			};
-			
-			const result = await emailTransporter.sendMail(mailOptions);
-			console.log('Email sent:', result.messageId);
-			return result;
-		} catch (error) {
-			console.error('Email send error:', error);
-			throw error;
-		}
+	if (!token) {
+		return res.status(401).json({ error: 'Token não fornecido' });
 	}
-	
-	static async sendPushNotification(subscription, payload) {
-		try {
-			const result = await webPush.sendNotification(subscription, JSON.stringify(payload));
-			console.log('Push notification sent:', result);
-			return result;
-		} catch (error) {
-			console.error('Push notification error:', error);
-			throw error;
-		}
-	}
-	
-	static async createNotification(userId, type, category, title, message, metadata = null) {
-		try {
-			const notification = await prisma.notification.create({
-				data: {
-					userId,
-					type,
-					category,
-					title,
-					message,
-					metadata,
-				},
-			});
-			
-			// Get user preferences
-			const preferences = await prisma.notificationPreference.findUnique({
-				where: { userId },
-			});
-			
-			if (!preferences) {
-				// Create default preferences
-				await prisma.notificationPreference.create({
-					data: { userId },
-				});
-			}
-			
-			// Send notification based on type and preferences
-			if (type === 'EMAIL' || type === 'BOTH') {
-				if (preferences?.emailEnabled !== false) {
-					await this.sendEmailNotification(userId, title, message);
+
+	try {
+		const decoded = jwt.verify(token, process.env.JWT_SECRET);
+		const user = await prisma.user.findUnique({
+			where: { id: decoded.userId },
+			include: {
+				companyUsers: {
+					include: { company: true }
 				}
 			}
-			
-			if (type === 'PUSH' || type === 'BOTH') {
-				if (preferences?.pushEnabled !== false) {
-					await this.sendPushNotificationToUser(userId, title, message);
-				}
-			}
-			
-			// Update notification status
-			await prisma.notification.update({
-				where: { id: notification.id },
-				data: { status: 'SENT', sentAt: new Date() },
-			});
-			
-			return notification;
-		} catch (error) {
-			console.error('Create notification error:', error);
-			throw error;
-		}
-	}
-	
-	static async sendEmailNotification(userId, title, message) {
-		try {
-			const user = await prisma.user.findUnique({ where: { id: userId } });
-			if (!user?.email) return;
-			
-			const html = `
-				<!DOCTYPE html>
-				<html>
-				<head>
-					<meta charset="utf-8">
-					<title>${title}</title>
-					<style>
-						body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-						.container { max-width: 600px; margin: 0 auto; padding: 20px; }
-						.header { background: #10b981; color: white; padding: 20px; text-align: center; }
-						.content { padding: 20px; background: #f8fafc; }
-						.footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-					</style>
-				</head>
-				<body>
-					<div class="container">
-						<div class="header">
-							<h1>TimeCash King</h1>
-						</div>
-						<div class="content">
-							<h2>${title}</h2>
-							<p>${message}</p>
-						</div>
-						<div class="footer">
-							<p>© 2024 TimeCash King. Todos os direitos reservados.</p>
-						</div>
-					</div>
-				</body>
-				</html>
-			`;
-			
-			await this.sendEmail(user.email, title, html);
-		} catch (error) {
-			console.error('Send email notification error:', error);
-		}
-	}
-	
-	static async sendPushNotificationToUser(userId, title, message) {
-		try {
-			// In a real implementation, you would store push subscriptions
-			// For now, we'll just log the attempt
-			console.log(`Push notification for user ${userId}: ${title} - ${message}`);
-		} catch (error) {
-			console.error('Send push notification error:', error);
-		}
-	}
-}
-
-// Scheduled notifications
-cron.schedule('0 9 * * 1', async () => {
-	// Weekly reminder every Monday at 9 AM
-	try {
-		const users = await prisma.user.findMany({
-			include: { notificationPreferences: true },
 		});
-		
-		for (const user of users) {
-			if (user.notificationPreferences?.reminderEnabled !== false) {
-				await NotificationService.createNotification(
-					user.id,
-					'EMAIL',
-					'REMINDER',
-					'Lembrete Semanal - TimeCash King',
-					'Lembre-se de registrar suas transações da semana! Mantenha seu controle financeiro em dia.',
-					{ frequency: 'weekly' }
-				);
-			}
+
+		if (!user) {
+			return res.status(401).json({ error: 'Usuário não encontrado' });
 		}
-	} catch (error) {
-		console.error('Weekly reminder error:', error);
-	}
-});
 
-cron.schedule('0 10 1 * *', async () => {
-	// Monthly report on the 1st of each month at 10 AM
-	try {
-		const users = await prisma.user.findMany({
-			include: { notificationPreferences: true },
-		});
-		
-		for (const user of users) {
-			if (user.notificationPreferences?.reportEnabled !== false) {
-				// Get monthly summary
-				const startDate = new Date();
-				startDate.setMonth(startDate.getMonth() - 1);
-				startDate.setDate(1);
-				
-				const endDate = new Date();
-				endDate.setDate(0); // Last day of previous month
-				
-				const transactions = await prisma.transaction.findMany({
-					where: {
-						userId: user.id,
-						date: { gte: startDate, lte: endDate },
-					},
-				});
-				
-				const totalIncome = transactions
-					.filter(t => t.type === 'INCOME')
-					.reduce((sum, t) => sum + Number(t.amount), 0);
-					
-				const totalExpense = transactions
-					.filter(t => t.type === 'EXPENSE')
-					.reduce((sum, t) => sum + Number(t.amount), 0);
-				
-				await NotificationService.createNotification(
-					user.id,
-					'EMAIL',
-					'REPORT',
-					'Relatório Mensal - TimeCash King',
-					`Seu relatório mensal está pronto!\n\nReceitas: R$ ${totalIncome.toFixed(2)}\nDespesas: R$ ${totalExpense.toFixed(2)}\nSaldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`,
-					{ 
-						period: 'monthly',
-						totalIncome,
-						totalExpense,
-						balance: totalIncome - totalExpense
-					}
-				);
-			}
-		}
-	} catch (error) {
-		console.error('Monthly report error:', error);
-	}
-});
-
-// Subscription plans
-const SUBSCRIPTION_PLANS = {
-	BASIC: {
-		id: 'price_basic',
-		name: 'Plano Básico',
-		price: 19.90,
-		features: ['Até 100 transações/mês', 'Relatórios básicos', 'Suporte por email']
-	},
-	PRO: {
-		id: 'price_pro', 
-		name: 'Plano Pro',
-		price: 39.90,
-		features: ['Transações ilimitadas', 'Relatórios avançados', 'Exportação PDF', 'Suporte prioritário']
-	},
-	ENTERPRISE: {
-		id: 'price_enterprise',
-		name: 'Plano Enterprise', 
-		price: 99.90,
-		features: ['Tudo do Pro', 'Múltiplos usuários', 'API personalizada', 'Suporte dedicado']
-	}
-};
-
-// PDF generation helpers
-const pdfTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{{title}}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .summary { display: flex; justify-content: space-between; margin: 20px 0; }
-        .card { background: #f5f5f5; padding: 15px; border-radius: 8px; text-align: center; }
-        .card.income { background: #d4edda; color: #155724; }
-        .card.expense { background: #f8d7da; color: #721c24; }
-        .card.balance { background: #d1ecf1; color: #0c5460; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>{{title}}</h1>
-        <p>Período: {{period.start}} a {{period.end}}</p>
-        <p>Gerado em: {{generatedAt}}</p>
-    </div>
-    
-    <div class="summary">
-        <div class="card income">
-            <h3>Receitas</h3>
-            <h2>R$ {{totals.income}}</h2>
-        </div>
-        <div class="card expense">
-            <h3>Despesas</h3>
-            <h2>R$ {{totals.expense}}</h2>
-        </div>
-        <div class="card balance">
-            <h3>Saldo</h3>
-            <h2>R$ {{totals.balance}}</h2>
-        </div>
-    </div>
-    
-    <h3>Transações</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Data</th>
-                <th>Tipo</th>
-                <th>Categoria</th>
-                <th>Descrição</th>
-                <th>Valor</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each transactions}}
-            <tr>
-                <td>{{date}}</td>
-                <td>{{type}}</td>
-                <td>{{category}}</td>
-                <td>{{description}}</td>
-                <td>R$ {{amount}}</td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
-    
-    <h3>Resumo por Categoria</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Categoria</th>
-                <th>Valor</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each byCategory}}
-            <tr>
-                <td>{{category}}</td>
-                <td>R$ {{amount}}</td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
-    
-    <div class="footer">
-        <p>TimeCash King - Relatório Financeiro</p>
-    </div>
-</body>
-</html>
-`;
-
-async function generatePDF(data) {
-	const browser = await puppeteer.launch({ 
-		headless: 'new',
-		args: ['--no-sandbox', '--disable-setuid-sandbox']
-	});
-	const page = await browser.newPage();
-	
-	const template = Handlebars.compile(pdfTemplate);
-	const html = template(data);
-	
-	await page.setContent(html);
-	const pdf = await page.pdf({ 
-		format: 'A4',
-		printBackground: true,
-		margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
-	});
-	
-	await browser.close();
-	return pdf;
-}
-
-// Request log middleware (structured JSON)
-app.use((req, res, next) => {
-	const start = Date.now();
-	res.on('finish', () => {
-		if (req.method === 'OPTIONS') return;
-		const log = {
-			level: 'info',
-			ts: new Date().toISOString(),
-			method: req.method,
-			path: req.originalUrl || req.url,
-			status: res.statusCode,
-			durationMs: Date.now() - start,
-		};
-		console.log(JSON.stringify(log));
-	});
-	return next();
-});
-
-// Google OAuth basic setup
-const googleClientId = process.env.GOOGLE_CLIENT_ID;
-const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || 'https://timecashking-api.onrender.com/integrations/google/callback';
-
-const oauth2Client = new OAuth2Client({
-	clientId: googleClientId,
-	clientSecret: googleClientSecret,
-	redirectUri: googleRedirectUri,
-});
-
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
-
-function signJwt(payload) {
-	return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
-}
-
-// Helpers: validation & ownership
-function badRequest(res, messages) {
-	const details = Array.isArray(messages) ? messages : [String(messages)];
-	return res.status(400).json({ error: 'ValidationError', details });
-}
-
-async function ensureCategoryOwned(categoryId, userId) {
-	if (!categoryId) return null;
-	const cat = await prisma.category.findUnique({ where: { id: String(categoryId) } });
-	if (!cat || cat.userId !== userId) {
-		const err = new Error('CATEGORY_NOT_FOUND_OR_NOT_OWNED');
-		err.code = 'CATEGORY_NOT_OWNED';
-		throw err;
-	}
-	return cat;
-}
-
-function normalizeAmount(input) {
-	if (input === undefined || input === null) return undefined;
-	let s = String(input).trim().replace(/\s+/g, '');
-	// Convert decimal comma to dot
-	s = s.replace(/,/g, '.');
-	// Remove thousands separators if multiple dots exist
-	const parts = s.split('.');
-	if (parts.length > 2) {
-		const dec = parts.pop();
-		s = parts.join('') + '.' + dec;
-	}
-	const n = Number(s);
-	return isNaN(n) ? NaN : n;
-}
-
-function getTokenFromRequest(req) {
-	// 1) Authorization header
-	const auth = req.headers.authorization || '';
-	if (auth.startsWith('Bearer ')) return auth.substring(7);
-	// 2) Cookie
-	const cookieHeader = req.headers.cookie || '';
-	const cookieMap = Object.fromEntries(
-		cookieHeader.split(';').map(v => v.trim()).filter(Boolean).map(v => {
-			const idx = v.indexOf('=');
-			return idx >= 0 ? [v.slice(0, idx), decodeURIComponent(v.slice(idx + 1))] : [v, ''];
-		})
-	);
-	return cookieMap['tck_jwt'];
-}
-
-function authMiddleware(req, res, next) {
-	const token = getTokenFromRequest(req);
-	if (!token) return res.status(401).json({ error: 'Unauthorized' });
-	try {
-		const decoded = jwt.verify(token, jwtSecret);
-		req.user = decoded;
+		req.user = user;
 		next();
-	} catch (e) {
-		return res.status(401).json({ error: 'Invalid token' });
+	} catch (error) {
+		return res.status(403).json({ error: 'Token inválido' });
 	}
-}
+};
 
-// Role-based authorization middleware
-function requireRole(allowedRoles) {
+// Role-based authorization
+const requireRole = (roles) => {
 	return (req, res, next) => {
-		if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-		const userRole = req.user.role || 'USER';
-		if (!allowedRoles.includes(userRole)) {
-			return res.status(403).json({ error: 'Insufficient permissions' });
+		const userCompanies = req.user.companyUsers;
+		const hasRole = userCompanies.some(cu => roles.includes(cu.role));
+		
+		if (!hasRole) {
+			return res.status(403).json({ error: 'Acesso negado' });
 		}
 		next();
 	};
-}
+};
 
+// Helper functions
+const normalizeAmount = (amount) => {
+	if (typeof amount === 'string') {
+		return parseFloat(amount.replace(',', '.'));
+	}
+	return amount;
+};
 
-
-/**
- * @swagger
- * /api/health:
- *   get:
- *     summary: Health check endpoint
- *     description: Returns the health status of the API
- *     tags: [System]
- *     responses:
- *       200:
- *         description: API is healthy
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: "healthy"
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- *                 uptime:
- *                   type: number
- *                   example: 1234567
- */
-app.get('/api/health', (req, res) => {
-	res.json({
-		status: 'healthy',
-		timestamp: new Date().toISOString(),
-		uptime: process.uptime(),
-		version: '1.0.0',
-		environment: process.env.NODE_ENV || 'development',
+const getCurrentCompany = async (userId) => {
+	const companyUser = await prisma.companyUser.findFirst({
+		where: { userId, active: true },
+		include: { company: true }
 	});
+	return companyUser?.company;
+};
+
+// ===== ROUTES =====
+
+// Health check
+app.get('/health', (req, res) => {
+	res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-/**
- * @swagger
- * /api/currency/rates:
- *   get:
- *     summary: Get currency exchange rates
- *     description: Returns current exchange rates for BRL
- *     tags: [External APIs]
- *     responses:
- *       200:
- *         description: Currency rates retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 base:
- *                   type: string
- *                   example: "BRL"
- *                 rates:
- *                   type: object
- *                   example: {"USD": 0.21, "EUR": 0.19}
- *       500:
- *         description: External API error
- */
-app.get('/api/currency/rates', async (req, res) => {
-	try {
-		const rates = await ExternalAPIService.getCurrencyRates();
-		if (rates) {
-			res.json(rates);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch currency rates' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Currency API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/crypto/rates:
- *   get:
- *     summary: Get cryptocurrency rates
- *     description: Returns current rates for Bitcoin and Ethereum
- *     tags: [External APIs]
- *     responses:
- *       200:
- *         description: Crypto rates retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 bitcoin:
- *                   type: object
- *                   properties:
- *                     brl:
- *                       type: number
- *                       example: 250000
- *                     usd:
- *                       type: number
- *                       example: 50000
- *       500:
- *         description: External API error
- */
-app.get('/api/crypto/rates', async (req, res) => {
-	try {
-		const rates = await ExternalAPIService.getCryptoRates();
-		if (rates) {
-			res.json(rates);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch crypto rates' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Crypto API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/stock/{symbol}:
- *   get:
- *     summary: Get stock price
- *     description: Returns current stock price for a given symbol
- *     tags: [External APIs]
- *     parameters:
- *       - in: path
- *         name: symbol
- *         required: true
- *         schema:
- *           type: string
- *         description: Stock symbol (e.g., AAPL, GOOGL)
- *     responses:
- *       200:
- *         description: Stock price retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 symbol:
- *                   type: string
- *                   example: "AAPL"
- *                 price:
- *                   type: string
- *                   example: "150.25"
- *       500:
- *         description: External API error
- */
-app.get('/api/stock/:symbol', async (req, res) => {
-	try {
-		const { symbol } = req.params;
-		const price = await ExternalAPIService.getStockPrice(symbol);
-		if (price) {
-			res.json(price);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch stock price' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Stock API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/weather/{city}:
- *   get:
- *     summary: Get weather data
- *     description: Returns current weather data for a given city
- *     tags: [External APIs]
- *     parameters:
- *       - in: path
- *         name: city
- *         required: true
- *         schema:
- *           type: string
- *         description: City name (e.g., São Paulo, Rio de Janeiro)
- *     responses:
- *       200:
- *         description: Weather data retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 name:
- *                   type: string
- *                   example: "São Paulo"
- *                 main:
- *                   type: object
- *                   properties:
- *                     temp:
- *                       type: number
- *                       example: 25.5
- *                     humidity:
- *                       type: number
- *                       example: 65
- *       500:
- *         description: External API error
- */
-app.get('/api/weather/:city', async (req, res) => {
-	try {
-		const { city } = req.params;
-		const weather = await ExternalAPIService.getWeatherData(city);
-		if (weather) {
-			res.json(weather);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch weather data' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Weather API error', detail: String(error) });
-	}
-});
-
-// Webhook endpoints for external integrations
-/**
- * @swagger
- * /api/webhooks/bank-integration:
- *   post:
- *     summary: Bank integration webhook
- *     description: Receives webhooks from bank integration services
- *     tags: [Webhooks]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               event:
- *                 type: string
- *                 example: "transaction.created"
- *               data:
- *                 type: object
- *     responses:
- *       200:
- *         description: Webhook processed successfully
- *       400:
- *         description: Invalid webhook data
- */
-app.post('/api/webhooks/bank-integration', express.raw({ type: 'application/json' }), async (req, res) => {
-	try {
-		const signature = req.headers['x-webhook-signature'];
-		
-		// Verify webhook signature (implement based on your bank's requirements)
-		if (!signature) {
-			return res.status(400).json({ error: 'Missing webhook signature' });
-		}
-		
-		const payload = JSON.parse(req.body);
-		console.log('Bank webhook received:', payload);
-		
-		// Process the webhook based on event type
-		switch (payload.event) {
-			case 'transaction.created':
-				// Handle new transaction
-				break;
-			case 'account.updated':
-				// Handle account update
-				break;
-			default:
-				console.log('Unknown webhook event:', payload.event);
-		}
-		
-		res.json({ received: true });
-	} catch (error) {
-		console.error('Webhook processing error:', error);
-		res.status(500).json({ error: 'Webhook processing failed' });
-	}
-});
-
-/**
- * @swagger
- * /api/webhooks/accounting:
- *   post:
- *     summary: Accounting software webhook
- *     description: Receives webhooks from accounting software integrations
- *     tags: [Webhooks]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               event:
- *                 type: string
- *                 example: "invoice.paid"
- *               data:
- *                 type: object
- *     responses:
- *       200:
- *         description: Webhook processed successfully
- *       400:
- *         description: Invalid webhook data
- */
-app.post('/api/webhooks/accounting', express.raw({ type: 'application/json' }), async (req, res) => {
-	try {
-		const payload = JSON.parse(req.body);
-		console.log('Accounting webhook received:', payload);
-		
-		// Process accounting webhook
-		switch (payload.event) {
-			case 'invoice.paid':
-				// Handle invoice payment
-				break;
-			case 'expense.created':
-				// Handle new expense
-				break;
-			default:
-				console.log('Unknown accounting event:', payload.event);
-		}
-		
-		res.json({ received: true });
-	} catch (error) {
-		console.error('Accounting webhook error:', error);
-		res.status(500).json({ error: 'Webhook processing failed' });
-	}
-});
-
-/**
- * @swagger
- * /api/currency/rates:
- *   get:
- *     summary: Get currency exchange rates
- *     description: Returns current exchange rates for BRL
- *     tags: [External APIs]
- *     responses:
- *       200:
- *         description: Currency rates retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 base:
- *                   type: string
- *                   example: "BRL"
- *                 rates:
- *                   type: object
- *                   example: {"USD": 0.21, "EUR": 0.19}
- *       500:
- *         description: External API error
- */
-app.get('/api/currency/rates', async (req, res) => {
-	try {
-		const rates = await ExternalAPIService.getCurrencyRates();
-		if (rates) {
-			res.json(rates);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch currency rates' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Currency API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/crypto/rates:
- *   get:
- *     summary: Get cryptocurrency rates
- *     description: Returns current rates for Bitcoin and Ethereum
- *     tags: [External APIs]
- *     responses:
- *       200:
- *         description: Crypto rates retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 bitcoin:
- *                   type: object
- *                   properties:
- *                     brl:
- *                       type: number
- *                       example: 250000
- *                     usd:
- *                       type: number
- *                       example: 50000
- *       500:
- *         description: External API error
- */
-app.get('/api/crypto/rates', async (req, res) => {
-	try {
-		const rates = await ExternalAPIService.getCryptoRates();
-		if (rates) {
-			res.json(rates);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch crypto rates' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Crypto API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/stock/{symbol}:
- *   get:
- *     summary: Get stock price
- *     description: Returns current stock price for a given symbol
- *     tags: [External APIs]
- *     parameters:
- *       - in: path
- *         name: symbol
- *         required: true
- *         schema:
- *           type: string
- *         description: Stock symbol (e.g., AAPL, GOOGL)
- *     responses:
- *       200:
- *         description: Stock price retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 symbol:
- *                   type: string
- *                   example: "AAPL"
- *                 price:
- *                   type: string
- *                   example: "150.25"
- *       500:
- *         description: External API error
- */
-app.get('/api/stock/:symbol', async (req, res) => {
-	try {
-		const { symbol } = req.params;
-		const price = await ExternalAPIService.getStockPrice(symbol);
-		if (price) {
-			res.json(price);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch stock price' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Stock API error', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/weather/{city}:
- *   get:
- *     summary: Get weather data
- *     description: Returns current weather data for a given city
- *     tags: [External APIs]
- *     parameters:
- *       - in: path
- *         name: city
- *         required: true
- *         schema:
- *           type: string
- *         description: City name (e.g., São Paulo, Rio de Janeiro)
- *     responses:
- *       200:
- *         description: Weather data retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 name:
- *                   type: string
- *                   example: "São Paulo"
- *                 main:
- *                   type: object
- *                   properties:
- *                     temp:
- *                       type: number
- *                       example: 25.5
- *                     humidity:
- *                       type: number
- *                       example: 65
- *       500:
- *         description: External API error
- */
-app.get('/api/weather/:city', async (req, res) => {
-	try {
-		const { city } = req.params;
-		const weather = await ExternalAPIService.getWeatherData(city);
-		if (weather) {
-			res.json(weather);
-		} else {
-			res.status(500).json({ error: 'Failed to fetch weather data' });
-		}
-	} catch (error) {
-		res.status(500).json({ error: 'Weather API error', detail: String(error) });
-	}
-});
-
-// Webhook endpoints for external integrations
-/**
- * @swagger
- * /api/webhooks/bank-integration:
- *   post:
- *     summary: Bank integration webhook
- *     description: Receives webhooks from bank integration services
- *     tags: [Webhooks]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               event:
- *                 type: string
- *                 example: "transaction.created"
- *               data:
- *                 type: object
- *     responses:
- *       200:
- *         description: Webhook processed successfully
- *       400:
- *         description: Invalid webhook data
- */
-app.post('/api/webhooks/bank-integration', express.raw({ type: 'application/json' }), async (req, res) => {
-	try {
-		const signature = req.headers['x-webhook-signature'];
-		
-		// Verify webhook signature (implement based on your bank's requirements)
-		if (!signature) {
-			return res.status(400).json({ error: 'Missing webhook signature' });
-		}
-		
-		const payload = JSON.parse(req.body);
-		console.log('Bank webhook received:', payload);
-		
-		// Process the webhook based on event type
-		switch (payload.event) {
-			case 'transaction.created':
-				// Handle new transaction
-				break;
-			case 'account.updated':
-				// Handle account update
-				break;
-			default:
-				console.log('Unknown webhook event:', payload.event);
-		}
-		
-		res.json({ received: true });
-	} catch (error) {
-		console.error('Webhook processing error:', error);
-		res.status(500).json({ error: 'Webhook processing failed' });
-	}
-});
-
-/**
- * @swagger
- * /api/webhooks/accounting:
- *   post:
- *     summary: Accounting software webhook
- *     description: Receives webhooks from accounting software integrations
- *     tags: [Webhooks]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               event:
- *                 type: string
- *                 example: "invoice.paid"
- *               data:
- *                 type: object
- *     responses:
- *       200:
- *         description: Webhook processed successfully
- *       400:
- *         description: Invalid webhook data
- */
-app.post('/api/webhooks/accounting', express.raw({ type: 'application/json' }), async (req, res) => {
-	try {
-		const payload = JSON.parse(req.body);
-		console.log('Accounting webhook received:', payload);
-		
-		// Process accounting webhook
-		switch (payload.event) {
-			case 'invoice.paid':
-				// Handle invoice payment
-				break;
-			case 'expense.created':
-				// Handle new expense
-				break;
-			default:
-				console.log('Unknown accounting event:', payload.event);
-		}
-		
-		res.json({ received: true });
-	} catch (error) {
-		console.error('Accounting webhook error:', error);
-		res.status(500).json({ error: 'Webhook processing failed' });
-	}
-});
-
-// Enhanced API endpoints with validation
-/**
- * @swagger
- * /api/transactions:
- *   get:
- *     summary: Get user transactions
- *     description: Returns paginated list of user transactions
- *     tags: [Transactions]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Page number
- *       - in: query
- *         name: pageSize
- *         schema:
- *           type: integer
- *           default: 20
- *         description: Items per page
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [INCOME, EXPENSE]
- *         description: Filter by transaction type
- *       - in: query
- *         name: categoryId
- *         schema:
- *           type: string
- *         description: Filter by category ID
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date
- *         description: Start date filter
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date
- *         description: End date filter
- *     responses:
- *       200:
- *         description: Transactions retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 transactions:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Transaction'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     page:
- *                       type: integer
- *                     pageSize:
- *                       type: integer
- *                     total:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-app.get('/api/transactions', authMiddleware, [
-	query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-	query('pageSize').optional().isInt({ min: 1, max: 100 }).withMessage('Page size must be between 1 and 100'),
-	query('type').optional().isIn(['INCOME', 'EXPENSE']).withMessage('Type must be INCOME or EXPENSE'),
-	query('startDate').optional().isISO8601().withMessage('Start date must be a valid date'),
-	query('endDate').optional().isISO8601().withMessage('End date must be a valid date'),
-], async (req, res) => {
-	const errors = validationResult(req);
-	if (!errors.isEmpty()) {
-		return res.status(400).json({ errors: errors.array() });
-	}
-	
-	try {
-		const page = parseInt(req.query.page) || 1;
-		const pageSize = parseInt(req.query.pageSize) || 20;
-		const skip = (page - 1) * pageSize;
-		
-		const where = { userId: req.user.userId };
-		
-		if (req.query.type) where.type = req.query.type;
-		if (req.query.categoryId) where.categoryId = req.query.categoryId;
-		if (req.query.startDate || req.query.endDate) {
-			where.date = {};
-			if (req.query.startDate) where.date.gte = new Date(req.query.startDate);
-			if (req.query.endDate) where.date.lte = new Date(req.query.endDate);
-		}
-		
-		const [transactions, total] = await Promise.all([
-			prisma.transaction.findMany({
-				where,
-				include: { category: true },
-				orderBy: { date: 'desc' },
-				skip,
-				take: pageSize,
-			}),
-			prisma.transaction.count({ where }),
-		]);
-		
-		res.json({
-			transactions,
-			pagination: {
-				page,
-				pageSize,
-				total,
-				totalPages: Math.ceil(total / pageSize),
-			},
-		});
-	} catch (error) {
-		res.status(500).json({ error: 'Failed to fetch transactions', detail: String(error) });
-	}
-});
-
-/**
- * @swagger
- * /api/transactions:
- *   post:
- *     summary: Create new transaction
- *     description: Creates a new transaction for the authenticated user
- *     tags: [Transactions]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - type
- *               - amount
- *               - description
- *             properties:
- *               type:
- *                 type: string
- *                 enum: [INCOME, EXPENSE]
- *                 description: Transaction type
- *               amount:
- *                 type: number
- *                 minimum: 0.01
- *                 description: Transaction amount
- *               description:
- *                 type: string
- *                 minLength: 1
- *                 maxLength: 255
- *                 description: Transaction description
- *               categoryId:
- *                 type: string
- *                 description: Category ID (optional)
- *               date:
- *                 type: string
- *                 format: date
- *                 description: Transaction date (defaults to today)
- *     responses:
- *       201:
- *         description: Transaction created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Transaction'
- *       400:
- *         description: Validation error
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Server error
- */
-app.post('/api/transactions', authMiddleware, [
-	body('type').isIn(['INCOME', 'EXPENSE']).withMessage('Type must be INCOME or EXPENSE'),
-	body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be a positive number'),
-	body('description').isLength({ min: 1, max: 255 }).withMessage('Description must be between 1 and 255 characters'),
-	body('categoryId').optional().isString().withMessage('Category ID must be a string'),
-	body('date').optional().isISO8601().withMessage('Date must be a valid date'),
-], async (req, res) => {
-	const errors = validationResult(req);
-	if (!errors.isEmpty()) {
-		return res.status(400).json({ errors: errors.array() });
-	}
-	
-	try {
-		const { type, amount, description, categoryId, date } = req.body;
-		
-		// Verify category belongs to user if provided
-		if (categoryId) {
-			const category = await prisma.category.findFirst({
-				where: { id: categoryId, userId: req.user.userId },
-			});
-			if (!category) {
-				return res.status(400).json({ error: 'Category not found or does not belong to user' });
-			}
-		}
-		
-		const transaction = await prisma.transaction.create({
-			data: {
-				userId: req.user.userId,
-				type,
-				amount,
-				description,
-				categoryId,
-				date: date ? new Date(date) : new Date(),
-			},
-			include: { category: true },
-		});
-		
-		res.status(201).json(transaction);
-	} catch (error) {
-		res.status(500).json({ error: 'Failed to create transaction', detail: String(error) });
-	}
-});
-
-app.get('/', (req, res) => {
-	res.json({ status: 'up', service: 'timecashking-api' });
-});
-
-app.get('/integrations/google/auth', (req, res) => {
-	if (!googleClientId || !googleClientSecret) {
-		return res.status(500).json({ error: 'Google OAuth not configured' });
-	}
-	const scopes = [
-		'openid',
-		'email',
-		'profile',
-	];
-	const url = oauth2Client.generateAuthUrl({
+// Google OAuth
+app.get('/auth/google', (req, res) => {
+	const authUrl = oauth2Client.generateAuthUrl({
 		access_type: 'offline',
-		scope: scopes,
-		prompt: 'consent',
+		scope: ['https://www.googleapis.com/auth/calendar'],
 	});
-	res.redirect(url);
+	res.redirect(authUrl);
 });
 
-app.get('/integrations/google/callback', async (req, res) => {
+app.get('/auth/google/callback', async (req, res) => {
+	const { code } = req.query;
 	try {
-		const code = req.query.code;
-		if (!code) return res.status(400).json({ error: 'Missing code' });
 		const { tokens } = await oauth2Client.getToken(code);
 		oauth2Client.setCredentials(tokens);
-
-		// Get user info from id_token
-		const idToken = tokens.id_token;
-		if (!idToken) return res.status(500).json({ error: 'Missing id_token' });
-		const ticket = await oauth2Client.verifyIdToken({ idToken, audience: googleClientId });
-		const payload = ticket.getPayload();
-		const googleId = payload.sub;
-		const email = payload.email;
-		const name = payload.name;
-		const avatarUrl = payload.picture;
-
-		// Upsert user
-		const user = await prisma.user.upsert({
-			where: { email },
-			update: { googleId, name, avatarUrl },
-			create: { googleId, email, name, avatarUrl },
+		
+		// Get user info from Google
+		const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+		const { data } = await oauth2.userinfo.get();
+		
+		// Create or update user
+		let user = await prisma.user.findUnique({
+			where: { googleId: data.id }
 		});
 
-		const appToken = signJwt({ 
-			userId: user.id, 
-			email: user.email, 
-			name: user.name,
-			role: user.role 
-		});
+		if (!user) {
+			user = await prisma.user.create({
+				data: {
+					googleId: data.id,
+					email: data.email,
+					name: data.name,
+					avatarUrl: data.picture
+				}
+			});
 
-		// Set HttpOnly cookie (cross-site)
-		res.cookie('tck_jwt', appToken, {
-			httpOnly: true,
-			secure: true,
-			sameSite: 'none',
-			path: '/',
-			maxAge: 7 * 24 * 60 * 60 * 1000,
-		});
+			// Create default company for personal use
+			const company = await prisma.company.create({
+				data: {
+					name: 'Pessoal',
+					description: 'Uso pessoal'
+				}
+			});
 
-		// Optional redirect back to frontend with token (for legacy flow)
-		const frontendUrl = process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL;
-		if (frontendUrl) {
-			const redirectTo = new URL(frontendUrl.replace(/\/$/, '') + '/auth/callback');
-			redirectTo.searchParams.set('token', appToken);
-			return res.redirect(302, redirectTo.toString());
+			await prisma.companyUser.create({
+				data: {
+					companyId: company.id,
+					userId: user.id,
+					role: 'OWNER'
+				}
+			});
 		}
 
-		return res.json({
-			ok: true,
-			user: { 
-				id: user.id, 
-				email: user.email, 
-				name: user.name, 
-				avatarUrl: user.avatarUrl,
-				role: user.role 
-			},
-			jwt: appToken,
-		});
-	} catch (err) {
-		return res.status(500).json({ error: 'OAuth callback failed', detail: String(err) });
+		const token = jwt.sign(
+			{ userId: user.id },
+			process.env.JWT_SECRET,
+			{ expiresIn: '7d' }
+		);
+
+		res.redirect(`${process.env.FRONTEND_URL}?token=${token}`);
+	} catch (error) {
+		console.error('Google OAuth error:', error);
+		res.redirect(`${process.env.FRONTEND_URL}?error=auth_failed`);
 	}
 });
 
-app.get('/me', authMiddleware, async (req, res) => {
-	const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-	if (!user) return res.status(404).json({ error: 'Not found' });
-	return res.json({ 
-		id: user.id, 
-		email: user.email, 
-		name: user.name, 
-		avatarUrl: user.avatarUrl,
-		role: user.role 
-	});
+// User profile
+app.get('/me', authenticateToken, async (req, res) => {
+	try {
+		const user = await prisma.user.findUnique({
+			where: { id: req.user.id },
+			include: {
+				companyUsers: {
+					include: { company: true }
+				},
+				notificationPreferences: true
+			}
+		});
+		res.json(user);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
 });
 
-// Admin-only endpoints for user management
-app.get('/admin/users', authMiddleware, requireRole(['ADMIN']), async (req, res) => {
+// Companies
+app.get('/companies', authenticateToken, async (req, res) => {
 	try {
-		const users = await prisma.user.findMany({
-			select: {
-				id: true,
-				email: true,
-				name: true,
-				avatarUrl: true,
-				role: true,
-				createdAt: true,
+		const companies = await prisma.company.findMany({
+			where: {
+				users: {
+					some: { userId: req.user.id }
+				}
+			},
+			include: {
 				_count: {
 					select: {
-						categories: true,
 						transactions: true,
-					},
-				},
-			},
-			orderBy: { createdAt: 'desc' },
+						products: true,
+						events: true
+					}
+				}
+			}
 		});
-		return res.json(users);
-	} catch (e) {
-		return res.status(500).json({ error: 'Failed to fetch users', detail: String(e) });
+		res.json(companies);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
 	}
 });
 
-app.patch('/admin/users/:id/role', authMiddleware, requireRole(['ADMIN']), async (req, res) => {
+app.post('/companies', authenticateToken, requireRole(['OWNER', 'ADMIN']), [
+	body('name').isLength({ min: 1, max: 100 }),
+	body('description').optional().isLength({ max: 500 })
+], async (req, res) => {
 	try {
-		const userId = String(req.params.id);
-		const role = String(req.body.role || req.query.role).toUpperCase();
-		
-		if (!['USER', 'ADMIN', 'MANAGER'].includes(role)) {
-			return badRequest(res, 'role must be USER, ADMIN, or MANAGER');
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
 		}
-		
-		const user = await prisma.user.findUnique({ where: { id: userId } });
-		if (!user) return res.status(404).json({ error: 'User not found' });
-		
-		const updated = await prisma.user.update({
-			where: { id: userId },
-			data: { role },
+
+		const company = await prisma.company.create({
+			data: {
+				name: req.body.name,
+				description: req.body.description
+			}
 		});
-		
-		return res.json({
-			id: updated.id,
-			email: updated.email,
-			name: updated.name,
-			role: updated.role,
+
+		await prisma.companyUser.create({
+			data: {
+				companyId: company.id,
+				userId: req.user.id,
+				role: 'OWNER'
+			}
 		});
-	} catch (e) {
-		return res.status(500).json({ error: 'Failed to update user role', detail: String(e) });
+
+		res.status(201).json(company);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
 	}
 });
 
-// Manager endpoints for viewing other users' data
-app.get('/manager/users/:id/summary', authMiddleware, requireRole(['ADMIN', 'MANAGER']), async (req, res) => {
+// Accounts
+app.get('/accounts', authenticateToken, async (req, res) => {
 	try {
-		const targetUserId = String(req.params.id);
-		const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-		const end = req.query.end ? new Date(String(req.query.end)) : new Date();
-		
-		// Verify target user exists
-		const targetUser = await prisma.user.findUnique({ where: { id: targetUserId } });
-		if (!targetUser) return res.status(404).json({ error: 'User not found' });
-		
-		const where = { userId: targetUserId, date: { gte: start, lte: end } };
-		
-		const [income, expense, byCategory] = await Promise.all([
-			prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
-			prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
-			prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
-		]);
-		
-		const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
-		const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
-		const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
-		
-		return res.json({
-			user: { id: targetUser.id, email: targetUser.email, name: targetUser.name },
-			period: { start, end },
-			totals: {
-				income: Number(income._sum.amount || 0),
-				expense: Number(expense._sum.amount || 0),
-				balance: Number(income._sum.amount || 0) - Number(expense._sum.amount || 0),
-			},
-			byCategory: byCategory.map(b => ({ 
-				categoryId: b.categoryId, 
-				category: idToName[b.categoryId] || '(Sem categoria)', 
-				amount: Number(b._sum.amount || 0) 
-			})),
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const accounts = await prisma.account.findMany({
+			where: { companyId: company.id },
+			orderBy: { name: 'asc' }
 		});
-	} catch (e) {
-		return res.status(500).json({ error: 'Manager summary failed', detail: String(e) });
+		res.json(accounts);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
 	}
 });
 
-// Logout: clear cookie
-app.post('/auth/logout', (req, res) => {
-	res.cookie('tck_jwt', '', {
-		httpOnly: true,
-		secure: true,
-		sameSite: 'none',
-		path: '/',
-		maxAge: 0,
-	});
-	return res.json({ ok: true });
+app.post('/accounts', authenticateToken, [
+	body('name').isLength({ min: 1, max: 100 }),
+	body('type').isIn(['CASH', 'BANK', 'CREDIT_CARD']),
+	body('balance').isNumeric(),
+	body('billingDay').optional().isInt({ min: 1, max: 31 }),
+	body('dueDay').optional().isInt({ min: 1, max: 31 })
+], async (req, res) => {
+	try {
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
+		}
+
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const account = await prisma.account.create({
+			data: {
+				companyId: company.id,
+				name: req.body.name,
+				type: req.body.type,
+				balance: normalizeAmount(req.body.balance),
+				billingDay: req.body.billingDay,
+				dueDay: req.body.dueDay
+			}
+		});
+
+		res.status(201).json(account);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
 });
 
 // Categories
-app.post('/categories', authMiddleware, async (req, res) => {
+app.get('/categories', authenticateToken, async (req, res) => {
 	try {
-		const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
-		const errors = [];
-		if (!name) errors.push('name is required');
-		if (name && name.length < 2) errors.push('name must be at least 2 chars');
-		if (name && name.length > 60) errors.push('name must be <= 60 chars');
-		if (errors.length) return badRequest(res, errors);
-		const cat = await prisma.category.create({ data: { name, userId: req.user.userId } });
-		return res.json(cat);
-	} catch (e) {
-		return res.status(500).json({ error: 'Create category failed', detail: String(e) });
-	}
-});
-
-app.get('/categories', authMiddleware, async (req, res) => {
-	try {
-		const paginate = String(req.query.paginate || '').toLowerCase() === 'true';
-		if (!paginate) {
-			const list = await prisma.category.findMany({ where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' } });
-			return res.json(list);
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
 		}
-		const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
-		const pageSize = Math.max(1, Math.min(100, parseInt(String(req.query.pageSize || '10'), 10) || 10));
-		const where = { userId: req.user.userId };
-		const [total, data] = await Promise.all([
-			prisma.category.count({ where }),
-			prisma.category.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
-		]);
-		return res.json({ data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
-	} catch (e) {
-		console.error('GET /categories failed', e);
-		return res.status(500).json({ error: 'Categories failed', detail: String(e) });
+
+		const categories = await prisma.category.findMany({
+			where: { companyId: company.id },
+			orderBy: { name: 'asc' }
+		});
+		res.json(categories);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
 	}
 });
 
-app.patch('/categories/:id', authMiddleware, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const name = ((req.body && req.body.name) || req.query.name || '').toString().trim();
-        const errors = [];
-        if (!name) errors.push('name is required');
-        if (name && name.length < 2) errors.push('name must be at least 2 chars');
-        if (name && name.length > 60) errors.push('name must be <= 60 chars');
-        if (errors.length) return badRequest(res, errors);
-        // ensure ownership
-        const existing = await prisma.category.findUnique({ where: { id } });
-        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
-        const updated = await prisma.category.update({ where: { id }, data: { name } });
-        return res.json(updated);
-    } catch (e) {
-        return res.status(500).json({ error: 'Update category failed', detail: String(e) });
-    }
-});
+app.post('/categories', authenticateToken, [
+	body('name').isLength({ min: 1, max: 100 }),
+	body('type').isIn(['INCOME', 'EXPENSE'])
+], async (req, res) => {
+	try {
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
+		}
 
-app.delete('/categories/:id', authMiddleware, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        // ensure ownership
-        const existing = await prisma.category.findUnique({ where: { id } });
-        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
-        await prisma.category.delete({ where: { id } });
-        return res.json({ ok: true });
-    } catch (e) {
-        return res.status(500).json({ error: 'Delete category failed', detail: String(e) });
-    }
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const category = await prisma.category.create({
+			data: {
+				companyId: company.id,
+				name: req.body.name,
+				type: req.body.type
+			}
+		});
+
+		res.status(201).json(category);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
 });
 
 // Transactions
-app.post('/transactions', authMiddleware, async (req, res) => {
+app.get('/transactions', authenticateToken, async (req, res) => {
 	try {
-		const errors = [];
-		const type = ((req.body && req.body.type) || req.query.type || '').toString().toUpperCase();
-		if (!['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
-		const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
-		const amount = normalizeAmount(amountRaw);
-		if (amountRaw === undefined || isNaN(amount) || amount <= 0) errors.push('amount must be a positive number');
-		const categoryId = (req.body && req.body.categoryId) ? String(req.body.categoryId) : (req.query.categoryId ? String(req.query.categoryId) : undefined);
-		const description = (req.body && req.body.description) ? String(req.body.description) : (req.query.description ? String(req.query.description) : undefined);
-		if (description && description.length > 200) errors.push('description must be <= 200 chars');
-		if (errors.length) return badRequest(res, errors);
-		await ensureCategoryOwned(categoryId, req.user.userId);
-		const tx = await prisma.transaction.create({
-			data: { type, amount, userId: req.user.userId, categoryId, description },
-		});
-		return res.json(tx);
-	} catch (e) {
-		return res.status(500).json({ error: 'Create transaction failed', detail: String(e) });
-	}
-});
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
 
-app.get('/transactions', authMiddleware, async (req, res) => {
-	try {
-		const paginate = String(req.query.paginate || '').toLowerCase() === 'true';
-		const where = { userId: req.user.userId };
-		// optional filters
-		if (req.query.start || req.query.end) {
-			where.date = {};
-			if (req.query.start) where.date.gte = new Date(String(req.query.start));
-			if (req.query.end) where.date.lte = new Date(String(req.query.end));
+		const { page = 1, limit = 20, type, categoryId, startDate, endDate } = req.query;
+		const skip = (page - 1) * limit;
+
+		const where = { companyId: company.id };
+		if (type) where.type = type;
+		if (categoryId) where.categoryId = categoryId;
+		if (startDate && endDate) {
+			where.date = {
+				gte: new Date(startDate),
+				lte: new Date(endDate)
+			};
 		}
-		if (req.query.type) {
-			const t = String(req.query.type).toUpperCase();
-			if (t === 'INCOME' || t === 'EXPENSE') where.type = t;
-		}
-		if (req.query.categoryId) {
-			where.categoryId = String(req.query.categoryId);
-		}
-		const baseQuery = {
-			where,
-			orderBy: { date: 'desc' },
-			include: { category: true },
-		};
-		if (!paginate) {
-			const list = await prisma.transaction.findMany(baseQuery);
-			return res.json(list);
-		}
-		const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
-		const pageSize = Math.max(1, Math.min(100, parseInt(String(req.query.pageSize || '10'), 10) || 10));
-		const [total, data] = await Promise.all([
-			prisma.transaction.count({ where: baseQuery.where }),
-			prisma.transaction.findMany({ ...baseQuery, skip: (page - 1) * pageSize, take: pageSize }),
+
+		const [transactions, total] = await Promise.all([
+			prisma.transaction.findMany({
+				where,
+				include: {
+					category: true,
+					account: true
+				},
+				orderBy: { date: 'desc' },
+				skip: parseInt(skip),
+				take: parseInt(limit)
+			}),
+			prisma.transaction.count({ where })
 		]);
-		return res.json({ data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
-	} catch (e) {
-		console.error('GET /transactions failed', e);
-		return res.status(500).json({ error: 'Transactions failed', detail: String(e) });
+
+		res.json({
+			transactions,
+			pagination: {
+				page: parseInt(page),
+				limit: parseInt(limit),
+				total,
+				pages: Math.ceil(total / limit)
+			}
+		});
+	} catch (error) {
+		res.status(500).json({ error: error.message });
 	}
 });
 
-app.patch('/transactions/:id', authMiddleware, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const existing = await prisma.transaction.findUnique({ where: { id } });
-        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
-
-        const errors = [];
-        const typeRaw = (req.body && req.body.type) || req.query.type;
-        const type = typeRaw ? String(typeRaw).toUpperCase() : undefined;
-        if (type && !['INCOME', 'EXPENSE'].includes(type)) errors.push('type must be INCOME or EXPENSE');
-
-        const amountRaw = (req.body && req.body.amount) ?? req.query.amount;
-        const amount = amountRaw !== undefined ? normalizeAmount(amountRaw) : undefined;
-        if (amountRaw !== undefined && (isNaN(amount) || amount <= 0)) errors.push('amount must be a positive number');
-
-        const categoryIdRaw = (req.body && req.body.categoryId) ?? req.query.categoryId;
-        const categoryId = categoryIdRaw !== undefined && categoryIdRaw !== '' ? String(categoryIdRaw) : null;
-
-        const descriptionRaw = (req.body && req.body.description) ?? req.query.description;
-        const description = descriptionRaw !== undefined ? String(descriptionRaw) : undefined;
-        if (description !== undefined && description.length > 200) errors.push('description must be <= 200 chars');
-        if (errors.length) return badRequest(res, errors);
-        await ensureCategoryOwned(categoryId, req.user.userId);
-
-        const data = {};
-        if (type) data.type = type;
-        if (amount !== undefined) data.amount = amount;
-        if (categoryId !== undefined) data.categoryId = categoryId; // can be null to clear
-        if (description !== undefined) data.description = description;
-
-        const updated = await prisma.transaction.update({ where: { id }, data });
-        return res.json(updated);
-    } catch (e) {
-        return res.status(500).json({ error: 'Update transaction failed', detail: String(e) });
-    }
-});
-
-app.delete('/transactions/:id', authMiddleware, async (req, res) => {
-    try {
-        const id = String(req.params.id);
-        const existing = await prisma.transaction.findUnique({ where: { id } });
-        if (!existing || existing.userId !== req.user.userId) return res.status(404).json({ error: 'Not found' });
-        await prisma.transaction.delete({ where: { id } });
-        return res.json({ ok: true });
-    } catch (e) {
-        return res.status(500).json({ error: 'Delete transaction failed', detail: String(e) });
-    }
-});
-
-// Export transactions as CSV for a date range
-app.get('/transactions/csv', authMiddleware, async (req, res) => {
-    try {
-        const start = req.query.start ? new Date(String(req.query.start)) : new Date(0);
-        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
-        const list = await prisma.transaction.findMany({
-            where: { userId: req.user.userId, date: { gte: start, lte: end } },
-            orderBy: { date: 'desc' },
-            include: { category: true },
-        });
-        const rows = [
-            ['date', 'type', 'amount', 'category', 'description'],
-            ...list.map(t => [
-                t.date.toISOString(),
-                t.type,
-                String(t.amount),
-                t.category ? t.category.name : '',
-                t.description || '',
-            ]),
-        ];
-        const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="transactions.csv"');
-        return res.send(csv);
-    } catch (e) {
-        console.error('GET /transactions/csv failed', e);
-        return res.status(500).json({ error: 'Transactions CSV failed', detail: String(e) });
-    }
-});
-
-// Summary: totals by type and by category within a date range
-app.get('/summary', authMiddleware, async (req, res) => {
-    const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const end = req.query.end ? new Date(String(req.query.end)) : new Date();
-    try {
-        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
-
-        const [income, expense, byCategory] = await Promise.all([
-            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
-            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
-            prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
-        ]);
-
-        const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
-        const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
-        const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
-
-        return res.json({
-            period: { start, end },
-            totals: {
-                income: Number(income._sum.amount || 0),
-                expense: Number(expense._sum.amount || 0),
-                balance: Number(income._sum.amount || 0) - Number(expense._sum.amount || 0),
-            },
-            byCategory: byCategory.map(b => ({ categoryId: b.categoryId, category: idToName[b.categoryId] || '(Sem categoria)', amount: Number(b._sum.amount || 0) })),
-        });
-    } catch (e) {
-        return res.status(500).json({ error: 'Summary failed', detail: String(e) });
-    }
-});
-
-// PDF Report generation
-app.get('/reports/pdf', authMiddleware, async (req, res) => {
-    try {
-        const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
-        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
-
-        const [income, expense, byCategory, transactions] = await Promise.all([
-            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'INCOME' } }),
-            prisma.transaction.aggregate({ _sum: { amount: true }, where: { ...where, type: 'EXPENSE' } }),
-            prisma.transaction.groupBy({ by: ['categoryId'], _sum: { amount: true }, where, orderBy: { _sum: { amount: 'desc' } } }),
-            prisma.transaction.findMany({ 
-                where, 
-                include: { category: true },
-                orderBy: { date: 'desc' }
-            }),
-        ]);
-
-        const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
-        const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
-        const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
-
-        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-        
-        const pdfData = {
-            title: `Relatório Financeiro - ${user.name}`,
-            period: {
-                start: start.toLocaleDateString('pt-BR'),
-                end: end.toLocaleDateString('pt-BR')
-            },
-            generatedAt: new Date().toLocaleString('pt-BR'),
-            totals: {
-                income: Number(income._sum.amount || 0).toFixed(2),
-                expense: Number(expense._sum.amount || 0).toFixed(2),
-                balance: (Number(income._sum.amount || 0) - Number(expense._sum.amount || 0)).toFixed(2)
-            },
-            transactions: transactions.map(t => ({
-                date: t.date.toLocaleDateString('pt-BR'),
-                type: t.type === 'INCOME' ? 'Receita' : 'Despesa',
-                category: t.category ? t.category.name : '(Sem categoria)',
-                description: t.description || '',
-                amount: Number(t.amount).toFixed(2)
-            })),
-            byCategory: byCategory.map(b => ({
-                category: idToName[b.categoryId] || '(Sem categoria)',
-                amount: Number(b._sum.amount || 0).toFixed(2)
-            }))
-        };
-
-        const pdf = await generatePDF(pdfData);
-        
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'attachment; filename="relatorio-financeiro.pdf"');
-        return res.send(pdf);
-    } catch (e) {
-        return res.status(500).json({ error: 'PDF generation failed', detail: String(e) });
-    }
-});
-
-// Advanced reports with charts data
-app.get('/reports/advanced', authMiddleware, async (req, res) => {
-    try {
-        const start = req.query.start ? new Date(String(req.query.start)) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        const end = req.query.end ? new Date(String(req.query.end)) : new Date();
-        const groupBy = req.query.groupBy || 'month'; // month, week, day, category
-        
-        const where = { userId: req.user.userId, date: { gte: start, lte: end } };
-        
-        let chartData;
-        
-        if (groupBy === 'category') {
-            const byCategory = await prisma.transaction.groupBy({
-                by: ['categoryId', 'type'],
-                _sum: { amount: true },
-                where,
-                orderBy: { _sum: { amount: 'desc' } }
-            });
-            
-            const catIds = byCategory.map(b => b.categoryId).filter(Boolean);
-            const cats = await prisma.category.findMany({ where: { id: { in: catIds } } });
-            const idToName = Object.fromEntries(cats.map(c => [c.id, c.name]));
-            
-            chartData = byCategory.map(b => ({
-                label: idToName[b.categoryId] || '(Sem categoria)',
-                type: b.type,
-                value: Number(b._sum.amount || 0)
-            }));
-        } else {
-            // Group by time period
-            const byPeriod = await prisma.transaction.groupBy({
-                by: ['type'],
-                _sum: { amount: true },
-                where,
-                orderBy: { _sum: { amount: 'desc' } }
-            });
-            
-            chartData = byPeriod.map(b => ({
-                label: b.type === 'INCOME' ? 'Receitas' : 'Despesas',
-                type: b.type,
-                value: Number(b._sum.amount || 0)
-            }));
-        }
-        
-        // Monthly trend data
-        const monthlyTrend = await prisma.transaction.groupBy({
-            by: ['type'],
-            _sum: { amount: true },
-            where,
-            orderBy: { _sum: { amount: 'desc' } }
-        });
-        
-        const trendData = monthlyTrend.map(b => ({
-            label: b.type === 'INCOME' ? 'Receitas' : 'Despesas',
-            value: Number(b._sum.amount || 0)
-        }));
-        
-        return res.json({
-            period: { start, end },
-            groupBy,
-            chartData,
-            trendData,
-            summary: {
-                totalIncome: Number(monthlyTrend.find(b => b.type === 'INCOME')?._sum.amount || 0),
-                totalExpense: Number(monthlyTrend.find(b => b.type === 'EXPENSE')?._sum.amount || 0)
-            }
-        });
-    } catch (e) {
-        return res.status(500).json({ error: 'Advanced report failed', detail: String(e) });
-    }
-});
-
-// Subscription and Payment endpoints
-app.get('/subscription/plans', authMiddleware, async (req, res) => {
-    try {
-        return res.json(Object.values(SUBSCRIPTION_PLANS));
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch plans', detail: String(e) });
-    }
-});
-
-app.get('/subscription/current', authMiddleware, async (req, res) => {
-    try {
-        const subscription = await prisma.subscription.findUnique({
-            where: { userId: req.user.userId },
-            include: { payments: { orderBy: { createdAt: 'desc' }, take: 5 } }
-        });
-        
-        if (!subscription) {
-            return res.json({ 
-                status: 'TRIAL',
-                plan: null,
-                trialEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days trial
-            });
-        }
-        
-        return res.json({
-            status: subscription.status,
-            plan: {
-                id: subscription.planId,
-                name: subscription.planName,
-                price: subscription.planPrice
-            },
-            currentPeriod: {
-                start: subscription.currentPeriodStart,
-                end: subscription.currentPeriodEnd
-            },
-            trialEnd: subscription.trialEnd,
-            canceledAt: subscription.canceledAt,
-            recentPayments: subscription.payments
-        });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch subscription', detail: String(e) });
-    }
-});
-
-app.post('/subscription/create-checkout', authMiddleware, async (req, res) => {
-    try {
-        const { planId } = req.body;
-        const plan = Object.values(SUBSCRIPTION_PLANS).find(p => p.id === planId);
-        
-        if (!plan) {
-            return badRequest(res, 'Invalid plan ID');
-        }
-        
-        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-        
-        // Create or get Stripe customer
-        let customer;
-        const existingSubscription = await prisma.subscription.findUnique({
-            where: { userId: req.user.userId }
-        });
-        
-        if (existingSubscription?.stripeCustomerId) {
-            customer = await stripe.customers.retrieve(existingSubscription.stripeCustomerId);
-        } else {
-            customer = await stripe.customers.create({
-                email: user.email,
-                name: user.name,
-                metadata: { userId: req.user.userId }
-            });
-        }
-        
-        // Create checkout session
-        const session = await stripe.checkout.sessions.create({
-            customer: customer.id,
-            payment_method_types: ['card'],
-            line_items: [{
-                price: planId,
-                quantity: 1,
-            }],
-            mode: 'subscription',
-            success_url: `${process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.FRONTEND_URL || process.env.NETLIFY_SITE_URL}/subscription/cancel`,
-            metadata: {
-                userId: req.user.userId,
-                planId: planId
-            }
-        });
-        
-        return res.json({ sessionId: session.id, url: session.url });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to create checkout session', detail: String(e) });
-    }
-});
-
-app.post('/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
-    let event;
-    
-    try {
-        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-    } catch (err) {
-        return res.status(400).json({ error: 'Webhook signature verification failed' });
-    }
-    
-    try {
-        switch (event.type) {
-            case 'customer.subscription.created':
-            case 'customer.subscription.updated':
-                const subscription = event.data.object;
-                const userId = subscription.metadata?.userId;
-                
-                if (userId) {
-                    await prisma.subscription.upsert({
-                        where: { userId },
-                        update: {
-                            stripeSubscriptionId: subscription.id,
-                            stripeCustomerId: subscription.customer,
-                            planId: subscription.items.data[0].price.id,
-                            planName: SUBSCRIPTION_PLANS[subscription.items.data[0].price.id]?.name || 'Unknown',
-                            planPrice: subscription.items.data[0].price.unit_amount / 100,
-                            status: subscription.status.toUpperCase(),
-                            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-                            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-                            trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
-                            canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
-                        },
-                        create: {
-                            userId,
-                            stripeSubscriptionId: subscription.id,
-                            stripeCustomerId: subscription.customer,
-                            planId: subscription.items.data[0].price.id,
-                            planName: SUBSCRIPTION_PLANS[subscription.items.data[0].price.id]?.name || 'Unknown',
-                            planPrice: subscription.items.data[0].price.unit_amount / 100,
-                            status: subscription.status.toUpperCase(),
-                            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-                            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-                            trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
-                            canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
-                        }
-                    });
-                }
-                break;
-                
-            case 'invoice.payment_succeeded':
-                const invoice = event.data.object;
-                const paymentUserId = invoice.metadata?.userId;
-                
-                if (paymentUserId) {
-                    await prisma.payment.create({
-                        data: {
-                            userId: paymentUserId,
-                            stripePaymentId: invoice.payment_intent,
-                            stripeInvoiceId: invoice.id,
-                            amount: invoice.amount_paid / 100,
-                            currency: invoice.currency.toUpperCase(),
-                            status: 'SUCCEEDED',
-                            description: `Pagamento da assinatura - ${invoice.subscription ? 'Recorrente' : 'Único'}`,
-                            paidAt: new Date(),
-                        }
-                    });
-                }
-                break;
-                
-            case 'customer.subscription.deleted':
-                const deletedSubscription = event.data.object;
-                const deletedUserId = deletedSubscription.metadata?.userId;
-                
-                if (deletedUserId) {
-                    await prisma.subscription.update({
-                        where: { userId: deletedUserId },
-                        data: {
-                            status: 'CANCELED',
-                            canceledAt: new Date(),
-                        }
-                    });
-                }
-                break;
-        }
-        
-        return res.json({ received: true });
-    } catch (e) {
-        console.error('Webhook error:', e);
-        return res.status(500).json({ error: 'Webhook processing failed' });
-    }
-});
-
-app.post('/subscription/cancel', authMiddleware, async (req, res) => {
-    try {
-        const subscription = await prisma.subscription.findUnique({
-            where: { userId: req.user.userId }
-        });
-        
-        if (!subscription?.stripeSubscriptionId) {
-            return res.status(404).json({ error: 'No active subscription found' });
-        }
-        
-        // Cancel at period end
-        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-            cancel_at_period_end: true
-        });
-        
-        await prisma.subscription.update({
-            where: { userId: req.user.userId },
-            data: { canceledAt: new Date() }
-        });
-        
-        return res.json({ message: 'Subscription will be canceled at the end of the current period' });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to cancel subscription', detail: String(e) });
-    }
-});
-
-app.get('/subscription/payments', authMiddleware, async (req, res) => {
-    try {
-        const payments = await prisma.payment.findMany({
-            where: { userId: req.user.userId },
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        });
-        
-        return res.json(payments);
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch payments', detail: String(e) });
-    }
-});
-
-// Notification endpoints
-app.get('/notifications', authMiddleware, async (req, res) => {
-    try {
-        const page = parseInt(req.query.page) || 1;
-        const pageSize = parseInt(req.query.pageSize) || 20;
-        const skip = (page - 1) * pageSize;
-        
-        const [notifications, total] = await Promise.all([
-            prisma.notification.findMany({
-                where: { userId: req.user.userId },
-                orderBy: { createdAt: 'desc' },
-                skip,
-                take: pageSize,
-            }),
-            prisma.notification.count({
-                where: { userId: req.user.userId },
-            }),
-        ]);
-        
-        return res.json({
-            notifications,
-            pagination: {
-                page,
-                pageSize,
-                total,
-                totalPages: Math.ceil(total / pageSize),
-            },
-        });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch notifications', detail: String(e) });
-    }
-});
-
-app.get('/notifications/unread', authMiddleware, async (req, res) => {
-    try {
-        const count = await prisma.notification.count({
-            where: { 
-                userId: req.user.userId,
-                status: { not: 'READ' }
-            },
-        });
-        
-        return res.json({ unreadCount: count });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch unread count', detail: String(e) });
-    }
-});
-
-app.patch('/notifications/:id/read', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const notification = await prisma.notification.findFirst({
-            where: { 
-                id,
-                userId: req.user.userId 
-            },
-        });
-        
-        if (!notification) {
-            return res.status(404).json({ error: 'Notification not found' });
-        }
-        
-        await prisma.notification.update({
-            where: { id },
-            data: { 
-                status: 'READ',
-                readAt: new Date()
-            },
-        });
-        
-        return res.json({ message: 'Notification marked as read' });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to mark notification as read', detail: String(e) });
-    }
-});
-
-app.patch('/notifications/read-all', authMiddleware, async (req, res) => {
-    try {
-        await prisma.notification.updateMany({
-            where: { 
-                userId: req.user.userId,
-                status: { not: 'READ' }
-            },
-            data: { 
-                status: 'READ',
-                readAt: new Date()
-            },
-        });
-        
-        return res.json({ message: 'All notifications marked as read' });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to mark all notifications as read', detail: String(e) });
-    }
-});
-
-app.delete('/notifications/:id', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const notification = await prisma.notification.findFirst({
-            where: { 
-                id,
-                userId: req.user.userId 
-            },
-        });
-        
-        if (!notification) {
-            return res.status(404).json({ error: 'Notification not found' });
-        }
-        
-        await prisma.notification.delete({
-            where: { id },
-        });
-        
-        return res.json({ message: 'Notification deleted' });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to delete notification', detail: String(e) });
-    }
-});
-
-// Notification preferences
-app.get('/notifications/preferences', authMiddleware, async (req, res) => {
-    try {
-        let preferences = await prisma.notificationPreference.findUnique({
-            where: { userId: req.user.userId },
-        });
-        
-        if (!preferences) {
-            // Create default preferences
-            preferences = await prisma.notificationPreference.create({
-                data: { userId: req.user.userId },
-            });
-        }
-        
-        return res.json(preferences);
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to fetch preferences', detail: String(e) });
-    }
-});
-
-app.patch('/notifications/preferences', authMiddleware, async (req, res) => {
-    try {
-        const {
-            emailEnabled,
-            pushEnabled,
-            reminderEnabled,
-            alertEnabled,
-            reportEnabled,
-            paymentEnabled,
-            systemEnabled,
-            reminderFrequency,
-            reportFrequency,
-        } = req.body;
-        
-        const preferences = await prisma.notificationPreference.upsert({
-            where: { userId: req.user.userId },
-            update: {
-                emailEnabled,
-                pushEnabled,
-                reminderEnabled,
-                alertEnabled,
-                reportEnabled,
-                paymentEnabled,
-                systemEnabled,
-                reminderFrequency,
-                reportFrequency,
-            },
-            create: {
-                userId: req.user.userId,
-                emailEnabled,
-                pushEnabled,
-                reminderEnabled,
-                alertEnabled,
-                reportEnabled,
-                paymentEnabled,
-                systemEnabled,
-                reminderFrequency,
-                reportFrequency,
-            },
-        });
-        
-        return res.json(preferences);
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to update preferences', detail: String(e) });
-    }
-});
-
-// Push notification subscription
-app.post('/notifications/push-subscription', authMiddleware, async (req, res) => {
-    try {
-        const { subscription } = req.body;
-        
-        // In a real implementation, you would store the push subscription
-        // For now, we'll just log it
-        console.log('Push subscription for user:', req.user.userId, subscription);
-        
-        return res.json({ message: 'Push subscription saved' });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to save push subscription', detail: String(e) });
-    }
-});
-
-// Test notification endpoint
-app.post('/notifications/test', authMiddleware, async (req, res) => {
-    try {
-        const { type = 'EMAIL', category = 'SYSTEM' } = req.body;
-        
-        const notification = await NotificationService.createNotification(
-            req.user.userId,
-            type,
-            category,
-            'Notificação de Teste',
-            'Esta é uma notificação de teste do TimeCash King!',
-            { test: true }
-        );
-        
-        return res.json({ message: 'Test notification sent', notification });
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to send test notification', detail: String(e) });
-    }
-});
-
-app.listen(port, () => {
-	console.log('server listening on port ' + port);
-});
-
-// 404 handler
-app.use((req, res) => {
-	res.status(404).json({ error: 'Not found' });
-});
-
-// 500 handler
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
+app.post('/transactions', authenticateToken, [
+	body('accountId').isUUID(),
+	body('type').isIn(['INCOME', 'EXPENSE', 'TRANSFER']),
+	body('amount').isNumeric(),
+	body('description').optional().isLength({ max: 500 }),
+	body('date').isISO8601(),
+	body('categoryId').optional().isUUID(),
+	body('isPaid').optional().isBoolean(),
+	body('dueDate').optional().isISO8601()
+], async (req, res) => {
 	try {
-		const log = {
-			level: 'error',
-			ts: new Date().toISOString(),
-			message: 'Unhandled error',
-			path: req.originalUrl || req.url,
-			method: req.method,
-			err: String(err && err.stack ? err.stack : err),
-		};
-		console.error(JSON.stringify(log));
-	} catch (_) {}
-	res.status(500).json({ error: 'Internal server error' });
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
+		}
+
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const amount = normalizeAmount(req.body.amount);
+		if (amount <= 0) {
+			return res.status(400).json({ error: 'Valor deve ser maior que zero' });
+		}
+
+		const transaction = await prisma.transaction.create({
+			data: {
+				companyId: company.id,
+				accountId: req.body.accountId,
+				categoryId: req.body.categoryId,
+				type: req.body.type,
+				amount,
+				description: req.body.description,
+				date: new Date(req.body.date),
+				isPaid: req.body.isPaid ?? true,
+				dueDate: req.body.dueDate ? new Date(req.body.dueDate) : null
+			},
+			include: {
+				category: true,
+				account: true
+			}
+		});
+
+		// Update account balance
+		await prisma.account.update({
+			where: { id: req.body.accountId },
+			data: {
+				balance: {
+					increment: req.body.type === 'INCOME' ? amount : -amount
+				}
+			}
+		});
+
+		// Create bill if not paid
+		if (!req.body.isPaid && req.body.dueDate) {
+			await prisma.bill.create({
+				data: {
+					companyId: company.id,
+					accountId: req.body.accountId,
+					transactionId: transaction.id,
+					type: req.body.type === 'INCOME' ? 'RECEIVABLE' : 'PAYABLE',
+					amount,
+					description: req.body.description,
+					dueDate: new Date(req.body.dueDate)
+				}
+			});
+		}
+
+		res.status(201).json(transaction);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+// Products
+app.get('/products', authenticateToken, async (req, res) => {
+	try {
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const products = await prisma.product.findMany({
+			where: { companyId: company.id },
+			orderBy: { name: 'asc' }
+		});
+		res.json(products);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+app.post('/products', authenticateToken, [
+	body('sku').isLength({ min: 1, max: 50 }),
+	body('name').isLength({ min: 1, max: 200 }),
+	body('cost').isNumeric(),
+	body('salePrice').isNumeric(),
+	body('stock').isInt({ min: 0 }),
+	body('minStock').isInt({ min: 0 }),
+	body('category').optional().isLength({ max: 100 })
+], async (req, res) => {
+	try {
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
+		}
+
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const product = await prisma.product.create({
+			data: {
+				companyId: company.id,
+				sku: req.body.sku,
+				name: req.body.name,
+				description: req.body.description,
+				cost: normalizeAmount(req.body.cost),
+				salePrice: normalizeAmount(req.body.salePrice),
+				stock: parseInt(req.body.stock),
+				minStock: parseInt(req.body.minStock),
+				category: req.body.category
+			}
+		});
+
+		res.status(201).json(product);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+// Sales Orders
+app.get('/sales', authenticateToken, async (req, res) => {
+	try {
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const orders = await prisma.salesOrder.findMany({
+			where: { companyId: company.id },
+			include: {
+				items: {
+					include: { product: true }
+				}
+			},
+			orderBy: { orderDate: 'desc' }
+		});
+		res.json(orders);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+app.post('/sales', authenticateToken, [
+	body('customerName').isLength({ min: 1, max: 200 }),
+	body('items').isArray({ min: 1 }),
+	body('items.*.productId').isUUID(),
+	body('items.*.quantity').isInt({ min: 1 }),
+	body('paymentMethod').isIn(['CASH', 'PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BANK_TRANSFER'])
+], async (req, res) => {
+	try {
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ errors: errors.array() });
+		}
+
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const { customerName, customerEmail, customerPhone, items, discount = 0, paymentMethod, notes } = req.body;
+
+		// Calculate total
+		let total = 0;
+		for (const item of items) {
+			const product = await prisma.product.findUnique({
+				where: { id: item.productId }
+			});
+			if (!product) {
+				return res.status(400).json({ error: `Produto ${item.productId} não encontrado` });
+			}
+			if (product.stock < item.quantity) {
+				return res.status(400).json({ error: `Estoque insuficiente para ${product.name}` });
+			}
+			total += product.salePrice * item.quantity;
+		}
+		total -= normalizeAmount(discount);
+
+		const order = await prisma.salesOrder.create({
+			data: {
+				companyId: company.id,
+				customerName,
+				customerEmail,
+				customerPhone,
+				total,
+				discount: normalizeAmount(discount),
+				paymentMethod,
+				notes
+			}
+		});
+
+		// Create order items and update stock
+		for (const item of items) {
+			const product = await prisma.product.findUnique({
+				where: { id: item.productId }
+			});
+
+			await prisma.salesOrderItem.create({
+				data: {
+					salesOrderId: order.id,
+					productId: item.productId,
+					quantity: item.quantity,
+					unitPrice: product.salePrice,
+					totalPrice: product.salePrice * item.quantity
+				}
+			});
+
+			// Update stock
+			await prisma.product.update({
+				where: { id: item.productId },
+				data: { stock: { decrement: item.quantity } }
+			});
+
+			// Create stock movement
+			await prisma.stockMovement.create({
+				data: {
+					companyId: company.id,
+					productId: item.productId,
+					type: 'EXIT',
+					reason: 'SALE',
+					quantity: item.quantity,
+					unitCost: product.cost,
+					totalCost: product.cost * item.quantity,
+					description: `Venda - Pedido #${order.id}`
+				}
+			});
+		}
+
+		// Create income transaction
+		const cashAccount = await prisma.account.findFirst({
+			where: { companyId: company.id, type: 'CASH' }
+		});
+
+		if (cashAccount) {
+			await prisma.transaction.create({
+				data: {
+					companyId: company.id,
+					accountId: cashAccount.id,
+					type: 'INCOME',
+					amount: total,
+					description: `Venda - ${customerName}`,
+					date: new Date()
+				}
+			});
+
+			await prisma.account.update({
+				where: { id: cashAccount.id },
+				data: { balance: { increment: total } }
+			});
+		}
+
+		res.status(201).json(order);
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+// Dashboard summary
+app.get('/summary', authenticateToken, async (req, res) => {
+	try {
+		const company = await getCurrentCompany(req.user.id);
+		if (!company) {
+			return res.status(400).json({ error: 'Nenhuma empresa selecionada' });
+		}
+
+		const now = new Date();
+		const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+		const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+		const [
+			monthlyIncome,
+			monthlyExpense,
+			totalBalance,
+			pendingBills,
+			lowStockProducts,
+			todayEvents,
+			recentTransactions
+		] = await Promise.all([
+			// Monthly income
+			prisma.transaction.aggregate({
+				where: {
+					companyId: company.id,
+					type: 'INCOME',
+					date: { gte: startOfMonth, lte: endOfMonth }
+				},
+				_sum: { amount: true }
+			}),
+			// Monthly expense
+			prisma.transaction.aggregate({
+				where: {
+					companyId: company.id,
+					type: 'EXPENSE',
+					date: { gte: startOfMonth, lte: endOfMonth }
+				},
+				_sum: { amount: true }
+			}),
+			// Total balance
+			prisma.account.aggregate({
+				where: { companyId: company.id },
+				_sum: { balance: true }
+			}),
+			// Pending bills
+			prisma.bill.count({
+				where: {
+					companyId: company.id,
+					status: 'PENDING',
+					dueDate: { lte: new Date() }
+				}
+			}),
+			// Low stock products
+			prisma.product.count({
+				where: {
+					companyId: company.id,
+					stock: { lte: prisma.product.fields.minStock }
+				}
+			}),
+			// Today events
+			prisma.event.findMany({
+				where: {
+					companyId: company.id,
+					startDate: {
+						gte: new Date(now.setHours(0, 0, 0, 0)),
+						lt: new Date(now.setHours(23, 59, 59, 999))
+					}
+				},
+				orderBy: { startDate: 'asc' }
+			}),
+			// Recent transactions
+			prisma.transaction.findMany({
+				where: { companyId: company.id },
+				include: { category: true, account: true },
+				orderBy: { date: 'desc' },
+				take: 5
+			})
+		]);
+
+		res.json({
+			monthlyIncome: monthlyIncome._sum.amount || 0,
+			monthlyExpense: monthlyExpense._sum.amount || 0,
+			totalBalance: totalBalance._sum.balance || 0,
+			pendingBills,
+			lowStockProducts,
+			todayEvents,
+			recentTransactions
+		});
+	} catch (error) {
+		res.status(500).json({ error: error.message });
+	}
+});
+
+// Telegram Bot Commands
+bot.command('start', (ctx) => {
+	ctx.reply('Bem-vindo ao TimeCash King! Use /vincular para conectar sua conta.');
+});
+
+bot.command('vincular', async (ctx) => {
+	const chatId = ctx.chat.id;
+	const userId = ctx.message.text.split(' ')[1];
+	
+	if (!userId) {
+		ctx.reply('Use: /vincular SEU_USER_ID');
+		return;
+	}
+
+	try {
+		const user = await prisma.user.findUnique({
+			where: { id: userId }
+		});
+
+		if (!user) {
+			ctx.reply('Usuário não encontrado. Verifique o ID.');
+			return;
+		}
+
+		await prisma.user.update({
+			where: { id: userId },
+			data: { telegramChatId: chatId.toString() }
+		});
+
+		ctx.reply('Conta vinculada com sucesso! Agora você pode usar comandos como:\n\n' +
+			'• "Hoje gastei R$70 no mercado"\n' +
+			'• "Recebi R$300 de um ensaio"\n' +
+			'• "Marcar reunião dia 25 às 14h"');
+	} catch (error) {
+		ctx.reply('Erro ao vincular conta. Tente novamente.');
+	}
+});
+
+// Process text messages
+bot.on(message('text'), async (ctx) => {
+	const text = ctx.message.text.toLowerCase();
+	const chatId = ctx.chat.id;
+
+	try {
+		const user = await prisma.user.findUnique({
+			where: { telegramChatId: chatId.toString() }
+		});
+
+		if (!user) {
+			ctx.reply('Use /vincular para conectar sua conta primeiro.');
+			return;
+		}
+
+		const company = await getCurrentCompany(user.id);
+		if (!company) {
+			ctx.reply('Nenhuma empresa configurada.');
+			return;
+		}
+
+		// Parse expense
+		const expenseMatch = text.match(/gastei r?\$?(\d+(?:[.,]\d{2})?) (?:no|em|com) (.+)/i);
+		if (expenseMatch) {
+			const amount = normalizeAmount(expenseMatch[1]);
+			const description = expenseMatch[2];
+
+			const cashAccount = await prisma.account.findFirst({
+				where: { companyId: company.id, type: 'CASH' }
+			});
+
+			if (!cashAccount) {
+				ctx.reply('Nenhuma conta de caixa configurada.');
+				return;
+			}
+
+			const transaction = await prisma.transaction.create({
+				data: {
+					companyId: company.id,
+					accountId: cashAccount.id,
+					type: 'EXPENSE',
+					amount,
+					description: `Telegram: ${description}`,
+					date: new Date()
+				}
+			});
+
+			await prisma.account.update({
+				where: { id: cashAccount.id },
+				data: { balance: { decrement: amount } }
+			});
+
+			ctx.reply(`✅ Despesa registrada: R$ ${amount.toFixed(2)} - ${description}`);
+			return;
+		}
+
+		// Parse income
+		const incomeMatch = text.match(/recebi r?\$?(\d+(?:[.,]\d{2})?) (?:de|por) (.+)/i);
+		if (incomeMatch) {
+			const amount = normalizeAmount(incomeMatch[1]);
+			const description = incomeMatch[2];
+
+			const cashAccount = await prisma.account.findFirst({
+				where: { companyId: company.id, type: 'CASH' }
+			});
+
+			if (!cashAccount) {
+				ctx.reply('Nenhuma conta de caixa configurada.');
+				return;
+			}
+
+			const transaction = await prisma.transaction.create({
+				data: {
+					companyId: company.id,
+					accountId: cashAccount.id,
+					type: 'INCOME',
+					amount,
+					description: `Telegram: ${description}`,
+					date: new Date()
+				}
+			});
+
+			await prisma.account.update({
+				where: { id: cashAccount.id },
+				data: { balance: { increment: amount } }
+			});
+
+			ctx.reply(`✅ Receita registrada: R$ ${amount.toFixed(2)} - ${description}`);
+			return;
+		}
+
+		// Parse meeting
+		const meetingMatch = text.match(/marcar reunião (?:dia )?(\d{1,2}) às (\d{1,2})h/i);
+		if (meetingMatch) {
+			const day = parseInt(meetingMatch[1]);
+			const hour = parseInt(meetingMatch[2]);
+			
+			const eventDate = new Date();
+			eventDate.setDate(day);
+			eventDate.setHours(hour, 0, 0, 0);
+
+			const event = await prisma.event.create({
+				data: {
+					companyId: company.id,
+					title: 'Reunião',
+					type: 'MEETING',
+					startDate: eventDate,
+					endDate: new Date(eventDate.getTime() + 60 * 60 * 1000) // +1 hour
+				}
+			});
+
+			ctx.reply(`✅ Reunião marcada para dia ${day} às ${hour}h`);
+			return;
+		}
+
+		ctx.reply('Comando não reconhecido. Use:\n' +
+			'• "Hoje gastei R$70 no mercado"\n' +
+			'• "Recebi R$300 de um ensaio"\n' +
+			'• "Marcar reunião dia 25 às 14h"');
+
+	} catch (error) {
+		console.error('Telegram bot error:', error);
+		ctx.reply('Erro ao processar comando. Tente novamente.');
+	}
+});
+
+// Start bot
+if (process.env.TELEGRAM_BOT_TOKEN) {
+	bot.launch();
+	console.log('Telegram bot started');
+}
+
+// Scheduled tasks
+cron.schedule('0 8 * * *', async () => {
+	// Daily reminders at 8 AM
+	try {
+		const today = new Date();
+		const tomorrow = new Date(today);
+		tomorrow.setDate(tomorrow.getDate() + 1);
+
+		const reminders = await prisma.reminder.findMany({
+			where: {
+				dueDate: {
+					gte: today,
+					lt: tomorrow
+				},
+				sent: false
+			},
+			include: {
+				company: {
+					include: {
+						users: {
+							include: { user: true }
+						}
+					}
+				}
+			}
+		});
+
+		for (const reminder of reminders) {
+			for (const companyUser of reminder.company.users) {
+				if (companyUser.user.telegramChatId) {
+					try {
+						await bot.telegram.sendMessage(
+							companyUser.user.telegramChatId,
+							`🔔 Lembrete: ${reminder.title}\n${reminder.message}`
+						);
+					} catch (error) {
+						console.error('Failed to send Telegram reminder:', error);
+					}
+				}
+			}
+
+			await prisma.reminder.update({
+				where: { id: reminder.id },
+				data: { sent: true, sentAt: new Date() }
+			});
+		}
+	} catch (error) {
+		console.error('Reminder cron error:', error);
+	}
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+	console.error(err.stack);
+	res.status(500).json({ error: 'Erro interno do servidor' });
+});
+
+app.use('*', (req, res) => {
+	res.status(404).json({ error: 'Endpoint não encontrado' });
+});
+
+// Start server
+app.listen(port, () => {
+	console.log(`TimeCash King API running on port ${port}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+	console.log('SIGTERM received, shutting down gracefully');
+	await prisma.$disconnect();
+	process.exit(0);
 });

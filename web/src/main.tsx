@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { createRoot } from 'react-dom/client';
+import './index.css';
 import { Home } from './pages/Home';
 import { Categories } from './pages/Categories';
 import { Transactions } from './pages/Transactions';
@@ -10,11 +11,27 @@ import { Manager } from './pages/Manager';
 import { Reports } from './pages/Reports';
 import { Subscription } from './pages/Subscription';
 import { Notifications } from './pages/Notifications';
+import { Companies } from './pages/Companies';
+import { Accounts } from './pages/Accounts';
+import { Products } from './pages/Products';
+import { Inventory } from './pages/Inventory';
+import { Sales } from './pages/Sales';
+import { Purchases } from './pages/Purchases';
+import { Schedule } from './pages/Schedule';
+import { Bills } from './pages/Bills';
 
 const router = createBrowserRouter([
 	{
 		path: '/',
 		element: <Home />,
+	},
+	{
+		path: '/companies',
+		element: <Companies />,
+	},
+	{
+		path: '/accounts',
+		element: <Accounts />,
 	},
 	{
 		path: '/categories',
@@ -23,6 +40,30 @@ const router = createBrowserRouter([
 	{
 		path: '/transactions',
 		element: <Transactions />,
+	},
+	{
+		path: '/bills',
+		element: <Bills />,
+	},
+	{
+		path: '/products',
+		element: <Products />,
+	},
+	{
+		path: '/inventory',
+		element: <Inventory />,
+	},
+	{
+		path: '/sales',
+		element: <Sales />,
+	},
+	{
+		path: '/purchases',
+		element: <Purchases />,
+	},
+	{
+		path: '/schedule',
+		element: <Schedule />,
 	},
 	{
 		path: '/summary',

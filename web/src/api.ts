@@ -1,6 +1,6 @@
 export const API = (import.meta.env.VITE_API_URL as string) || 'https://timecashking-api.onrender.com'
 
-function authHeaders() {
+export function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('tck_jwt') || ''
   return token ? { Authorization: 'Bearer ' + token } : {}
 }
