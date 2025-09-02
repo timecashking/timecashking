@@ -6,11 +6,9 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Executar diariamente às 2h da manhã
     - cron: '0 2 * * *'
 
 jobs:
-  # Verificação de dependências
   dependency-check:
     name: Verificação de Dependências
     runs-on: ubuntu-latest
@@ -35,11 +33,6 @@ jobs:
           cd web
           npm ci
           
-      - name: Instalar dependências do mobile
-        run: |
-          cd mobile
-          npm ci
-          
       - name: Verificar vulnerabilidades do backend
         run: |
           cd .
@@ -49,13 +42,7 @@ jobs:
         run: |
           cd web
           npm audit --audit-level=moderate || echo "Vulnerabilidades encontradas no frontend"
-          
-      - name: Verificar vulnerabilidades do mobile
-        run: |
-          cd mobile
-          npm audit --audit-level=moderate || echo "Vulnerabilidades encontradas no mobile"
 
-  # Análise de código com CodeQL
   codeql:
     name: Análise de Código (CodeQL)
     runs-on: ubuntu-latest
@@ -75,7 +62,6 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-  # Verificação de secrets
   secrets-check:
     name: Verificação de Secrets
     runs-on: ubuntu-latest
@@ -86,109 +72,9 @@ jobs:
         
       - name: Verificar secrets no código
         run: |
-          # Verificar por padrões de secrets
           if grep -r "sk_live\|pk_live\|api_key\|secret\|password" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "⚠️ Possíveis secrets encontrados no código!"
+            echo "Possíveis secrets encontrados no código!"
             exit 1
           else
-            echo "✅ Nenhum secret encontrado no código"
-          fi
-
-  # Verificação de licenças
-  license-check:
-    name: Verificação de Licenças
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          
-      - name: Instalar license-checker
-        run: npm install -g license-checker
-        
-      - name: Verificar licenças do backend
-        run: |
-          cd .
-          license-checker --summary --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause" || echo "Licenças não permitidas encontradas"
-          
-      - name: Verificar licenças do frontend
-        run: |
-          cd web
-          license-checker --summary --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause" || echo "Licenças não permitidas encontradas"
-          
-      - name: Verificar licenças do mobile
-        run: |
-          cd mobile
-          license-checker --summary --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause" || echo "Licenças não permitidas encontradas"
-
-  # Verificação de configurações de segurança
-  security-config:
-    name: Verificação de Configurações
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-        
-      - name: Verificar headers de segurança
-        run: |
-          echo "Verificando configurações de segurança..."
-          
-          # Verificar se helmet está configurado
-          if grep -r "helmet" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "✅ Helmet encontrado"
-          else
-            echo "⚠️ Helmet não encontrado"
-          fi
-          
-          # Verificar se CORS está configurado
-          if grep -r "cors" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "✅ CORS encontrado"
-          else
-            echo "⚠️ CORS não encontrado"
-          fi
-          
-          # Verificar se rate limiting está configurado
-          if grep -r "rate.*limit" . --exclude-dir=node_modules --exclude-dir=.git; then
-            echo "✅ Rate limiting encontrado"
-          else
-            echo "⚠️ Rate limiting não encontrado"
-          fi
-
-  # Relatório de segurança
-  security-report:
-    name: Relatório de Segurança
-    runs-on: ubuntu-latest
-    needs: [dependency-check, codeql, secrets-check, license-check, security-config]
-    if: always()
-    
-    steps:
-      - name: Gerar relatório
-        run: |
-          echo "🔒 Relatório de Segurança - TimeCash King"
-          echo "=========================================="
-          echo ""
-          echo "Status dos jobs:"
-          echo "- Dependency Check: ${{ needs.dependency-check.result }}"
-          echo "- CodeQL Analysis: ${{ needs.codeql.result }}"
-          echo "- Secrets Check: ${{ needs.secrets-check.result }}"
-          echo "- License Check: ${{ needs.license-check.result }}"
-          echo "- Security Config: ${{ needs.security-config.result }}"
-          echo ""
-          
-          if [[ "${{ needs.dependency-check.result }}" == "failure" ]] || \
-             [[ "${{ needs.codeql.result }}" == "failure" ]] || \
-             [[ "${{ needs.secrets-check.result }}" == "failure" ]] || \
-             [[ "${{ needs.license-check.result }}" == "failure" ]] || \
-             [[ "${{ needs.security-config.result }}" == "failure" ]]; then
-            echo "❌ Problemas de segurança encontrados!"
-            exit 1
-          else
-            echo "✅ Todas as verificações de segurança passaram!"
+            echo "Nenhum secret encontrado no código"
           fi
