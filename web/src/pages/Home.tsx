@@ -13,7 +13,7 @@ interface User {
   name: string;
   email: string;
   avatarUrl?: string;
-  companyUsers: Array<{
+  companyUsers?: Array<{
     role: string;
     company: {
       id: string;
@@ -180,7 +180,7 @@ export function Home() {
                 <Link to="/summary" className="text-gray-300 hover:text-white transition-colors">Resumo</Link>
                 <Link to="/reports" className="text-gray-300 hover:text-white transition-colors">Relatórios</Link>
                 <Link to="/notifications" className="text-gray-300 hover:text-white transition-colors">Notificações</Link>
-                {user.companyUsers.some(cu => cu.role === 'ADMIN') && (
+                {Boolean(user?.companyUsers?.some(cu => cu.role === 'ADMIN')) && (
                   <Link to="/admin" className="text-gray-300 hover:text-white transition-colors">Admin</Link>
                 )}
               </div>
