@@ -12,7 +12,8 @@
   status = 200
 
 [context.production.environment]
-  VITE_API_URL = "https://timecashking-api.onrender.com"
+  VITE_API_URL = "
+  https://timecashking-api.onrender.com"
 
 [context.deploy-preview.environment]
   VITE_API_URL = "https://timecashking-api.onrender.com"

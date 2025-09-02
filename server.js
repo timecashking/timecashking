@@ -364,6 +364,36 @@ app.post('/auth/login', [
   }
 });
 
+// Verificar se conta existe
+app.post('/auth/check-account', [
+  body('email').isEmail().normalizeEmail()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email inválido' 
+      });
+    }
+
+    const { email } = req.body;
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    res.json({ 
+      success: true, 
+      exists: !!user 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro interno do servidor' 
+    });
+  }
+});
+
 // Alterar senha
 app.post('/auth/change-password', authenticateToken, [
   body('currentPassword').notEmpty(),
