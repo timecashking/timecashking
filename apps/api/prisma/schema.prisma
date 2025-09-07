@@ -367,7 +367,10 @@ model Sale {
   customerName String?
   customerEmail String?
   totalAmount Decimal
+  totalCost   Decimal @default(0)
+  totalProfit Decimal @default(0)
   profit      Decimal @default(0)
+  saleDate    DateTime @default(now())
   status      SaleStatus @default(PENDING)
   
   // Relacionamentos
