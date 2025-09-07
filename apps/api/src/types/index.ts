@@ -29,6 +29,13 @@ export enum EntryType {
   EXPENSE = 'EXPENSE',
 }
 
+export enum EntryStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
+  OVERDUE = 'OVERDUE',
+}
+
 export enum CardType {
   CREDIT = 'CREDIT',
   DEBIT = 'DEBIT',
