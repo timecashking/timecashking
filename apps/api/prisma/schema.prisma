@@ -25,6 +25,7 @@ model User {
   
   // Relacionamentos
   companyUsers CompanyUser[]
+  accounts     Account[]
   entries      Entry[]
   products     Product[]
   sales        Sale[]
@@ -123,6 +124,8 @@ model Account {
   description String?
   
   // Relacionamentos
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   entries   Entry[]
@@ -305,6 +308,7 @@ model StockMove {
   quantity    Int
   reason      String
   reference   String?
+  moveDate    DateTime @default(now())
   
   // Relacionamentos
   productId String
@@ -444,6 +448,8 @@ model GoogleOAuth {
   accessToken   String
   refreshToken  String
   expiresAt     DateTime
+  expiryDate    DateTime
+  scope         String?
   
   // Timestamps
   createdAt DateTime @default(now())
