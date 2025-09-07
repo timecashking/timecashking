@@ -1,0 +1,479 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// MODELOS DE AUTENTICAÇÃO E USUÁRIOS
+// ========================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  avatarUrl String?
+  role      Role     @default(USER)
+  status    Status   @default(ACTIVE)
+  
+  // Relacionamentos
+  companyUsers CompanyUser[]
+  entries      Entry[]
+  products     Product[]
+  sales        Sale[]
+  meetings     Meeting[]
+  notifications Notification[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model CompanyUser {
+  id     String @id @default(cuid())
+  userId String
+  companyId String
+  
+  // Relacionamentos
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, companyId])
+  @@map("company_users")
+}
+
+model Company {
+  id          String @id @default(cuid())
+  name        String
+  cnpj        String? @unique
+  description String?
+  
+  // Relacionamentos
+  companyUsers CompanyUser[]
+  accounts     Account[]
+  categories   Category[]
+  customers    Customer[]
+  cards        Card[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("companies")
+}
+
+enum Role {
+  USER
+  ADMIN
+  OWNER
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// ========================================
+// MODELOS FINANCEIROS
+// ========================================
+
+model Category {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  type        CategoryType
+  color       String?
+  icon        String?
+  
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entries   Entry[]
+  products  Product[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("categories")
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+  TRANSFER
+  PRODUCT
+}
+
+model Account {
+  id          String @id @default(cuid())
+  name        String
+  type        AccountType
+  balance     Decimal @default(0)
+  description String?
+  
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entries   Entry[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("accounts")
+}
+
+enum AccountType {
+  CASH
+  BANK
+  CREDIT_CARD
+  INVESTMENT
+  OTHER
+}
+
+model Entry {
+  id          String @id @default(cuid())
+  description String
+  amount      Decimal
+  type        EntryType
+  date        DateTime
+  dueDate     DateTime?
+  reminderDays Int?
+  status      EntryStatus @default(PENDING)
+  recurring   Boolean @default(false)
+  recurringPattern String?
+  
+  // Relacionamentos
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String
+  category  Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("entries")
+}
+
+enum EntryType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum EntryStatus {
+  PENDING
+  PAID
+  CANCELLED
+  OVERDUE
+}
+
+// ========================================
+// MODELOS DE CARTÕES E FATURAS
+// ========================================
+
+model Card {
+  id          String @id @default(cuid())
+  name        String
+  type        CardType
+  limit       Decimal?
+  closeDay    Int
+  dueDay      Int
+  
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  charges    CardCharge[]
+  invoices   Invoice[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cards")
+}
+
+enum CardType {
+  CREDIT
+  DEBIT
+  PREPAID
+}
+
+model CardCharge {
+  id          String @id @default(cuid())
+  description String
+  amount      Decimal
+  date        DateTime
+  installments Int @default(1)
+  installmentNumber Int @default(1)
+  
+  // Relacionamentos
+  cardId String
+  card   Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("card_charges")
+}
+
+model Invoice {
+  id          String @id @default(cuid())
+  month       Int
+  year        Int
+  closeDate   DateTime
+  dueDate     DateTime
+  totalAmount Decimal
+  status      InvoiceStatus @default(OPEN)
+  
+  // Relacionamentos
+  cardId String
+  card   Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  charges CardCharge[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cardId, month, year])
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  OPEN
+  CLOSED
+  PAID
+  CANCELLED
+}
+
+// ========================================
+// MODELOS DE PRODUTOS E ESTOQUE
+// ========================================
+
+model Product {
+  id          String @id @default(cuid())
+  sku         String @unique
+  name        String
+  description String?
+  cost        Decimal
+  salePrice   Decimal
+  stock       Int @default(0)
+  minStock    Int @default(0)
+  status      ProductStatus @default(ACTIVE)
+  
+  // Relacionamentos
+  categoryId String
+  category  Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stockMoves StockMove[]
+  saleItems  SaleItem[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+model StockMove {
+  id          String @id @default(cuid())
+  type        StockMoveType
+  quantity    Int
+  reason      String
+  reference   String?
+  
+  // Relacionamentos
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@map("stock_moves")
+}
+
+enum StockMoveType {
+  IN
+  OUT
+  ADJUSTMENT
+  RETURN
+}
+
+// ========================================
+// MODELOS DE CLIENTES
+// ========================================
+
+model Customer {
+  id          String @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  document    String? // CPF/CNPJ
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  notes       String?
+  status      CustomerStatus @default(ACTIVE)
+  
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sales     Sale[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("customers")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+// ========================================
+// MODELOS DE VENDAS
+// ========================================
+
+model Sale {
+  id          String @id @default(cuid())
+  customerName String?
+  customerEmail String?
+  totalAmount Decimal
+  profit      Decimal @default(0)
+  status      SaleStatus @default(PENDING)
+  
+  // Relacionamentos
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items  SaleItem[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sales")
+}
+
+enum SaleStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+}
+
+model SaleItem {
+  id          String @id @default(cuid())
+  quantity    Int
+  unitPrice   Decimal
+  totalPrice  Decimal
+  cost        Decimal
+  profit      Decimal
+  
+  // Relacionamentos
+  saleId    String
+  sale      Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@map("sale_items")
+}
+
+// ========================================
+// MODELOS DE AGENDA E GOOGLE
+// ========================================
+
+model Meeting {
+  id            String @id @default(cuid())
+  title         String
+  description   String?
+  startTime     DateTime
+  endTime       DateTime
+  location      String?
+  googleEventId String?
+  
+  // Relacionamentos
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("meetings")
+}
+
+model GoogleOAuth {
+  id            String @id @default(cuid())
+  userId        String @unique
+  accessToken   String
+  refreshToken  String
+  expiresAt     DateTime
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("google_oauth")
+}
+
+// ========================================
+// MODELOS DE NOTIFICAÇÕES
+// ========================================
+
+model Notification {
+  id        String @id @default(cuid())
+  title     String
+  message   String
+  type      NotificationType
+  read      Boolean @default(false)
+  
+  // Relacionamentos
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  REMINDER
+}

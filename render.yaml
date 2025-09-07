@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: timecash-king-api
+    env: node
+    plan: starter
+    buildCommand: cd apps/api && npm install && npm run build
+    startCommand: cd apps/api && npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: timecash-king-db
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: timecash-king-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://timecashking.netlify.app
+    healthCheckPath: /infra/health
+    autoDeploy: true
+
+  - type: worker
+    name: timecash-king-worker
+    env: node
+    plan: starter
+    buildCommand: cd apps/api && npm install && npm run build
+    startCommand: cd apps/api && npm run start:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: timecash-king-db
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: timecash-king-db
+          property: connectionString
+      - key: CRON_ENABLED
+        value: "true"
+      - key: CRON_TIMEZONE
+        value: "America/Sao_Paulo"
+    autoDeploy: true
+
+databases:
+  - name: timecash-king-db
+    databaseName: timecash_king
+    user: timecash_king_user
+    plan: starter

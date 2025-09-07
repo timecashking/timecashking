@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark Gold Theme */
+    --background: 0 0% 4%;
+    --foreground: 45 100% 95%;
+    --card: 0 0% 7%;
+    --card-foreground: 45 100% 95%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 45 100% 95%;
+    --primary: 45 100% 50%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 9%;
+    --secondary-foreground: 45 100% 95%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 45 20% 60%;
+    --accent: 45 100% 60%;
+    --accent-foreground: 0 0% 4%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 45 20% 20%;
+    --input: 0 0% 14%;
+    --ring: 45 100% 50%;
+    --radius: 0.5rem;
+    
+    /* Custom Gold Colors */
+    --gold-50: 45 100% 95%;
+    --gold-100: 45 100% 90%;
+    --gold-200: 45 100% 80%;
+    --gold-300: 45 100% 70%;
+    --gold-400: 45 100% 60%;
+    --gold-500: 45 100% 50%;
+    --gold-600: 45 100% 40%;
+    --gold-700: 45 100% 30%;
+    --gold-800: 45 100% 20%;
+    --gold-900: 45 100% 10%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md font-medium transition-all duration-200 shadow-lg hover:shadow-xl;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 rounded-md font-medium transition-all duration-200;
+  }
+  
+  .btn-gold {
+    @apply bg-gradient-to-r from-yellow-500 to-yellow-600 text-black hover:from-yellow-400 hover:to-yellow-500 px-4 py-2 rounded-md font-medium transition-all duration-200 shadow-lg hover:shadow-xl;
+  }
+  
+  .card {
+    @apply bg-card text-card-foreground rounded-lg border border-border shadow-lg backdrop-blur-sm;
+  }
+  
+  .card-gold {
+    @apply bg-gradient-to-br from-yellow-900/20 to-yellow-800/10 border-yellow-600/30 text-yellow-100 rounded-lg shadow-xl backdrop-blur-sm;
+  }
+  
+  .input {
+    @apply flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200;
+  }
+  
+  .nav-link {
+    @apply flex items-center px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:bg-primary/10 hover:text-primary;
+  }
+  
+  .nav-link.active {
+    @apply bg-primary/20 text-primary border-r-2 border-primary;
+  }
+  
+  .sidebar {
+    @apply bg-card border-r border-border h-full w-64 flex flex-col;
+  }
+  
+  .main-content {
+    @apply flex-1 bg-background overflow-auto;
+  }
+  
+  .header {
+    @apply bg-card border-b border-border px-6 py-4 flex items-center justify-between;
+  }
+  
+  .gold-gradient {
+    @apply bg-gradient-to-r from-yellow-500 via-yellow-600 to-yellow-700;
+  }
+  
+  .gold-text {
+    @apply bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent;
+  }
+}

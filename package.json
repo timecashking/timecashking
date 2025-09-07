@@ -1,0 +1,36 @@
+{
+  "name": "timecash-king",
+  "version": "1.0.0",
+  "description": "Sistema completo de gestão financeira, estoque e agenda",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "build": "pnpm run --recursive build",
+    "start": "pnpm run --recursive start",
+    "test": "pnpm run --recursive test",
+    "test:e2e": "pnpm run --recursive test:e2e",
+    "test:coverage": "pnpm run --recursive test:coverage",
+    "lint": "pnpm run --recursive lint",
+    "lint:fix": "pnpm run --recursive lint:fix",
+    "db:generate": "pnpm -C apps/api prisma generate",
+    "db:push": "pnpm -C apps/api prisma db push",
+    "db:migrate": "pnpm -C apps/api prisma migrate dev",
+    "db:studio": "pnpm -C apps/api prisma studio",
+    "db:init": "node scripts/init-db.js",
+    "clean": "pnpm run --recursive clean",
+    "type-check": "pnpm run --recursive type-check"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.0.0"
+}
