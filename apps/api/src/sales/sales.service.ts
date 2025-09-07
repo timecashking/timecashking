@@ -29,8 +29,8 @@ export class SalesService {
         throw new BadRequestException(`Estoque insuficiente para ${product.name}`);
       }
 
-      totalAmount += item.unitPrice * item.quantity;
-      totalCost += product.cost * item.quantity;
+      totalAmount += Number(item.unitPrice) * item.quantity;
+      totalCost += Number(product.cost) * item.quantity;
     }
 
     const totalProfit = totalAmount - totalCost;
@@ -49,17 +49,27 @@ export class SalesService {
 
     // Criar itens da venda
     const saleItems = await Promise.all(
-      items.map((item) =>
-        this.prisma.saleItem.create({
+      items.map(async (item) => {
+        const product = await this.prisma.product.findUnique({
+          where: { id: item.productId },
+        });
+        
+        const totalPrice = Number(item.unitPrice) * item.quantity;
+        const cost = Number(product?.cost || 0) * item.quantity;
+        const profit = totalPrice - cost;
+        
+        return this.prisma.saleItem.create({
           data: {
             saleId: sale.id,
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            cost: item.cost || 0,
+            totalPrice,
+            cost,
+            profit,
           },
-        }),
-      ),
+        });
+      }),
     );
 
     // Atualizar estoque dos produtos

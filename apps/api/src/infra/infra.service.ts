@@ -63,7 +63,7 @@ export class InfraService {
             gte: startOfMonth,
             lte: endOfMonth,
           },
-          status: Status.ACTIVE,
+          status: EntryStatus.PAID,
         },
         _sum: {
           amount: true,
@@ -78,7 +78,7 @@ export class InfraService {
             gte: startOfMonth,
             lte: endOfMonth,
           },
-          status: Status.ACTIVE,
+          status: EntryStatus.PAID,
         },
         _sum: {
           amount: true,
@@ -92,7 +92,6 @@ export class InfraService {
             gte: now,
             lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
           },
-          status: Status.ACTIVE,
         },
         orderBy: {
           startTime: 'asc',
@@ -109,8 +108,8 @@ export class InfraService {
       }),
     ]);
 
-    const income = monthlyIncome._sum.amount || 0;
-    const expenses = monthlyExpenses._sum.amount || 0;
+    const income = Number(monthlyIncome._sum.amount) || 0;
+    const expenses = Number(monthlyExpenses._sum.amount) || 0;
     const balance = income - expenses;
 
     return {
