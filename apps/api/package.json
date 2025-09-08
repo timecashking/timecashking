@@ -5,7 +5,7 @@
   "author": "TimeCash King Team",
   "license": "MIT",
   "scripts": {
-    "build": "rm -rf node_modules/.prisma && npm install && npx prisma generate && nest build",
+    "build": "rm -rf node_modules/.prisma && rm -rf dist && npx prisma generate && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
