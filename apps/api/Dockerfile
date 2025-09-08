@@ -12,7 +12,7 @@ COPY prisma ./prisma/
 
 # Clear any existing prisma cache and install dependencies
 RUN rm -rf node_modules/.prisma && \
-    npm ci --only=production && \
+    npm install --omit=dev && \
     npx prisma generate
 
 # Copy source code
