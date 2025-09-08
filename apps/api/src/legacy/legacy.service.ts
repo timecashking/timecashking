@@ -7,7 +7,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
-// import * as bcrypt from 'bcryptjs'; // TEMPORARIAMENTE COMENTADO PARA DEPLOY
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class LegacyService {
@@ -463,20 +463,11 @@ export class LegacyService {
 
   async getReorderAlerts(userId: string) {
     const products = await this.prisma.product.findMany({
-      where: {
-        userId,
-        stock: {
-          lte: {
-            minStock: true,
-          },
-        },
-      },
-      include: {
-        category: true,
-      },
+      where: { userId },
+      include: { category: true },
     });
 
-    return products;
+    return products.filter((p: any) => Number(p.stock) <= Number(p.minStock));
   }
 
   // ========================================

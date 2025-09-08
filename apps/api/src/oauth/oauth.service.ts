@@ -33,13 +33,11 @@ export class OauthService {
         update: {
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          tokenType: 'Bearer',
         },
         create: {
           userId,
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          tokenType: 'Bearer',
         },
       });
 
