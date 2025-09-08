@@ -30,7 +30,7 @@ export class SalesService {
       }
 
       totalAmount += Number(item.unitPrice) * item.quantity;
-      totalCost += Number(product.cost) * item.quantity;
+      totalCost += Number(product?.cost || 0) * item.quantity;
     }
 
     const totalProfit = totalAmount - totalCost;

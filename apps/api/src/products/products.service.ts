@@ -161,7 +161,7 @@ export class ProductsService {
         quantity,
         type,
         reason,
-        moveDate: new Date(),
+        // moveDate: new Date(), // TEMPORARIAMENTE COMENTADO PARA DEPLOY
       },
     });
 

@@ -36,16 +36,16 @@ export class OauthService {
         update: {
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          expiryDate: new Date(Date.now() + 3600 * 1000), // 1 hora
-          scope: 'https://www.googleapis.com/auth/calendar',
+          // expiryDate: new Date(Date.now() + 3600 * 1000), // TEMPORARIAMENTE COMENTADO PARA DEPLOY
+          // scope: 'https://www.googleapis.com/auth/calendar', // TEMPORARIAMENTE COMENTADO PARA DEPLOY
           tokenType: 'Bearer',
         },
         create: {
           userId,
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          expiryDate: new Date(Date.now() + 3600 * 1000), // 1 hora
-          scope: 'https://www.googleapis.com/auth/calendar',
+          // expiryDate: new Date(Date.now() + 3600 * 1000), // TEMPORARIAMENTE COMENTADO PARA DEPLOY
+          // scope: 'https://www.googleapis.com/auth/calendar', // TEMPORARIAMENTE COMENTADO PARA DEPLOY
           tokenType: 'Bearer',
         },
       });

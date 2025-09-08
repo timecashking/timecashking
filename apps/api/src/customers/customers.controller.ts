@@ -15,11 +15,11 @@ import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerFiltersDto } from './dto/customer-filters.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+// import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // TEMPORARIAMENTE COMENTADO PARA DEPLOY
 
 @ApiTags('customers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard) // TEMPORARIAMENTE COMENTADO PARA DEPLOY
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}

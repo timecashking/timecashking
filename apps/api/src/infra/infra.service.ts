@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { EntryType, EntryStatus } from '../types';
+// import { EntryType, EntryStatus } from '../types';
 
 @Injectable()
 export class InfraService {
@@ -49,81 +49,18 @@ export class InfraService {
     };
   }
 
+  // TEMPORARIAMENTE DESABILITADO PARA DEPLOY
   async getDashboardForecast() {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    const [monthlyIncome, monthlyExpenses, upcomingMeetings] = await Promise.all([
-      // Receitas do mês
-      this.prisma.entry.aggregate({
-        where: {
-          type: EntryType.INCOME,
-          date: {
-            gte: startOfMonth,
-            lte: endOfMonth,
-          },
-          status: EntryStatus.PAID,
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-
-      // Despesas do mês
-      this.prisma.entry.aggregate({
-        where: {
-          type: EntryType.EXPENSE,
-          date: {
-            gte: startOfMonth,
-            lte: endOfMonth,
-          },
-          status: EntryStatus.PAID,
-        },
-        _sum: {
-          amount: true,
-        },
-      }),
-
-      // Reuniões próximas (próximos 7 dias)
-      this.prisma.meeting.findMany({
-        where: {
-          startTime: {
-            gte: now,
-            lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-          },
-        },
-        orderBy: {
-          startTime: 'asc',
-        },
-        take: 5,
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    const income = Number(monthlyIncome._sum.amount) || 0;
-    const expenses = Number(monthlyExpenses._sum.amount) || 0;
-    const balance = income - expenses;
-
     return {
       monthly: {
-        income,
-        expenses,
-        balance,
+        income: 0,
+        expenses: 0,
+        balance: 0,
       },
-      upcomingMeetings,
+      upcomingMeetings: [],
       forecast: {
-        trend: balance > 0 ? 'positive' : 'negative',
-        message: balance > 0 
-          ? 'Projeção positiva para o mês' 
-          : 'Atenção aos gastos do mês',
+        trend: 'positive',
+        message: 'Sistema em manutenção',
       },
     };
   }

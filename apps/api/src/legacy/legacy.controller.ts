@@ -27,7 +27,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { CreateCardDto } from './dto/create-card.dto';
-import { CreateInvoiceDto } from './dto/create-invoice.dto';
+// import { CreateInvoiceDto } from './dto/create-invoice.dto'; // TEMPORARIAMENTE COMENTADO PARA DEPLOY
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 
 @ApiTags('Legacy - APIs Existentes')

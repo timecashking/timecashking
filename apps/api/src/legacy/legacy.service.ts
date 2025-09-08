@@ -7,7 +7,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
-import * as bcrypt from 'bcryptjs';
+// import * as bcrypt from 'bcryptjs'; // TEMPORARIAMENTE COMENTADO PARA DEPLOY
 
 @Injectable()
 export class LegacyService {
