@@ -1,3 +1,4 @@
+
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -28,16 +29,21 @@ export class OauthService {
   async googleOAuthCallback(code: string, userId: string) {
     try {
       // Placeholder de troca de código por tokens
+      const oneHourFromNow = new Date(Date.now() + 3600 * 1000);
       const oauthData = await this.prisma.googleOAuth.upsert({
         where: { userId },
         update: {
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
+          expiresAt: oneHourFromNow,
+          expiryDate: oneHourFromNow,
         },
         create: {
           userId,
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
+          expiresAt: oneHourFromNow,
+          expiryDate: oneHourFromNow,
         },
       });
 
@@ -59,10 +65,13 @@ export class OauthService {
       throw new BadRequestException('Usuário não possui OAuth configurado');
     }
 
+    const oneHourFromNow = new Date(Date.now() + 3600 * 1000);
     const updatedOauth = await this.prisma.googleOAuth.update({
       where: { userId },
       data: {
         accessToken: 'new-access-token-placeholder',
+        expiresAt: oneHourFromNow,
+        expiryDate: oneHourFromNow,
       },
     });
 
