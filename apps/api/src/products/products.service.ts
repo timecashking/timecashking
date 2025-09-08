@@ -201,11 +201,6 @@ export class ProductsService {
     const products = await this.prisma.product.findMany({
       where: {
         userId,
-        stock: {
-          lte: {
-            minStock: true,
-          },
-        },
       },
       include: {
         category: true,
@@ -213,7 +208,9 @@ export class ProductsService {
       orderBy: { stock: 'asc' },
     });
 
-    return products;
+    // Prisma não suporta comparação de coluna vs coluna no where.
+    // Filtramos em memória: produtos com stock <= minStock.
+    return products.filter((p: any) => Number(p.stock) <= Number(p.minStock));
   }
 
   async getProfitReport(userId: string, startDate?: string, endDate?: string) {

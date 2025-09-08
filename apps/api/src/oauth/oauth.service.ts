@@ -27,25 +27,18 @@ export class OauthService {
 
   async googleOAuthCallback(code: string, userId: string) {
     try {
-      // Aqui você implementaria a troca do código de autorização por tokens
-      // Por enquanto, retornamos uma mensagem de placeholder
-      
-      // Salvar tokens no banco
+      // Placeholder de troca de código por tokens
       const oauthData = await this.prisma.googleOAuth.upsert({
         where: { userId },
         update: {
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          // expiryDate: new Date(Date.now() + 3600 * 1000), // TEMPORARIAMENTE COMENTADO PARA DEPLOY
-          // scope: 'https://www.googleapis.com/auth/calendar', // TEMPORARIAMENTE COMENTADO PARA DEPLOY
           tokenType: 'Bearer',
         },
         create: {
           userId,
           accessToken: 'access-token-placeholder',
           refreshToken: 'refresh-token-placeholder',
-          // expiryDate: new Date(Date.now() + 3600 * 1000), // TEMPORARIAMENTE COMENTADO PARA DEPLOY
-          // scope: 'https://www.googleapis.com/auth/calendar', // TEMPORARIAMENTE COMENTADO PARA DEPLOY
           tokenType: 'Bearer',
         },
       });
@@ -53,7 +46,6 @@ export class OauthService {
       return {
         message: 'OAuth realizado com sucesso',
         userId,
-        scope: oauthData.scope,
       };
     } catch (error) {
       throw new BadRequestException('Erro ao processar OAuth: ' + error.message);
@@ -69,21 +61,16 @@ export class OauthService {
       throw new BadRequestException('Usuário não possui OAuth configurado');
     }
 
-    // Aqui você implementaria a renovação do token
-    // Por enquanto, retornamos uma mensagem de placeholder
-    
     const updatedOauth = await this.prisma.googleOAuth.update({
       where: { userId },
       data: {
         accessToken: 'new-access-token-placeholder',
-        expiryDate: new Date(Date.now() + 3600 * 1000), // 1 hora
       },
     });
 
     return {
       message: 'Token renovado com sucesso',
       accessToken: updatedOauth.accessToken,
-      expiryDate: updatedOauth.expiryDate,
     };
   }
 
@@ -96,9 +83,6 @@ export class OauthService {
       throw new BadRequestException('Usuário não possui OAuth configurado');
     }
 
-    // Aqui você implementaria a revogação do acesso
-    // Por enquanto, apenas removemos do banco
-    
     await this.prisma.googleOAuth.delete({
       where: { userId },
     });
@@ -115,9 +99,7 @@ export class OauthService {
       throw new BadRequestException('Usuário não possui OAuth configurado');
     }
 
-    // Aqui você implementaria a busca de eventos no Google Calendar
-    // Por enquanto, retornamos dados de placeholder
-    
+    // Placeholder de eventos
     return {
       message: 'Eventos do Google Calendar obtidos com sucesso',
       events: [
