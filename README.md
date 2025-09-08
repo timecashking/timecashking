@@ -161,18 +161,20 @@ O frontend é configurado como PWA com:
 
 ## 🚀 Deploy
 
-### Frontend (Netlify)
+- Frontend: Vercel
+- Backend: Railway (PostgreSQL no Railway)
+
+### Frontend (Vercel)
 ```bash
 cd apps/web
 pnpm run build
-# Deploy da pasta .next
+# Configure no painel da Vercel apontando para apps/web
 ```
 
-### Backend (Render)
-```bash
-# Use o render.yaml para deploy automático
-# Ou configure manualmente no Render
-```
+### Backend (Railway)
+- Root Directory: apps/api
+- Builder: Dockerfile (apps/api/Dockerfile)
+- Start Command: npm run start:prod
 
 ## 🔧 Scripts Disponíveis
 

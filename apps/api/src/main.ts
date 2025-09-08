@@ -13,9 +13,7 @@ async function bootstrap() {
   // Configuração de CORS
   app.enableCors({
     origin: [
-      'https://timecashking.netlify.app',
-      'http://localhost:3000',
-      'http://localhost:3001',
+      process.env.WEB_ORIGIN || 'http://localhost:3001',
     ],
     credentials: true,
   });
