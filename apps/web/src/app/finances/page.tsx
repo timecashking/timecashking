@@ -1,5 +1,62 @@
 'use client';
 
+// Página simplificada para corrigir erro de compilação e destravar o deploy.
+// Reintroduzimos o layout completo depois do build publicado.
+
+import React, { useMemo } from 'react';
+
+type Transaction = {
+  id: number;
+  type: 'income' | 'expense';
+  description: string;
+  amount: number;
+  date: string;
+  category: string;
+};
+
+const initialTransactions: Transaction[] = [
+  { id: 1, type: 'income', description: 'Venda de Produto A', amount: 450.0, date: '2024-01-15', category: 'Vendas' },
+  { id: 2, type: 'expense', description: 'Compra de Material', amount: -120.0, date: '2024-01-14', category: 'Compras' },
+  { id: 3, type: 'income', description: 'Serviço Prestado', amount: 800.0, date: '2024-01-13', category: 'Serviços' },
+];
+
+export default function FinancesPage() {
+  const totalIncome = useMemo(
+    () => initialTransactions.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0),
+    []
+  );
+  const totalExpenses = useMemo(
+    () => Math.abs(initialTransactions.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)),
+    []
+  );
+  const balance = totalIncome - totalExpenses;
+
+  return (
+    <div style={{ padding: '1.5rem', backgroundColor: '#000', minHeight: '100vh', color: '#fff' }}>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>Finanças</h1>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+        <StatCard title="Receitas" value={totalIncome} color="#10B981" />
+        <StatCard title="Despesas" value={totalExpenses} color="#EF4444" />
+        <StatCard title="Saldo" value={balance} color={balance >= 0 ? '#EAB308' : '#EF4444'} />
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ title, value, color }: { title: string; value: number; color: string }) {
+  return (
+    <div style={{ background: '#111827', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 12, padding: '1rem' }}>
+      <p style={{ fontSize: 14, color: '#9CA3AF', margin: '0 0 8px 0' }}>{title}</p>
+      <p style={{ fontSize: 24, fontWeight: 700, color, margin: 0 }}>
+        {value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+      </p>
+    </div>
+  );
+}
+
+'use client';
+
 // OBS: Página simplificada para corrigir o erro de compilação no build.
 // Mantive um layout mínimo e cálculos base. 
 // Depois do deploy passar, podemos reintroduzir gradualmente as seções.
